@@ -8,9 +8,23 @@ In development
 ## Installation 
 
 ```
+#Install base requirements
+pip install xarray numpy ffmpeg scikit-image
+
+#Requiremetns for temporal alignment
+pip install satalign
+
+#Insall requierements for plotting (optional, but `plot_image` calls will fail)
+pip install ipython cv2
+pip install git+https://github.com/OscarPellicer/txyvis.git
+
+#Install repo
 cd ~
 git clone https://github.com/OscarPellicer/xarrayvideo.git
 cd xarrayvideo
+
+#Unzip the example xarray
+!unzip cube.zip
 ```
 
 Then run `jupyter lab` or VSCode to open example.ipynb
