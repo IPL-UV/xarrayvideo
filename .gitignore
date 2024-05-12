@@ -1,4 +1,5 @@
 out/
+deepextremes_images/
 *.zarr
 
 # Byte-compiled / optimized / DLL files

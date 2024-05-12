@@ -12,8 +12,13 @@ output_pix_fmt_dict= {1:'gray', 3:'rgb24', 4:'yuva420p'}
 
 def safe_eval(s):
     'Evaluates only simple expressions for safety over eval'
-    parsed = ast.parse(s, mode='eval')
-    return ast.literal_eval(parsed)
+    try:
+        #literal_eval does not support having nan as a value
+        parsed= ast.parse(s.replace('nan', 'None'), mode='eval')
+        evaluated= ast.literal_eval(parsed)
+    except Exception as e:
+        print(f'Exception evaulating {s=}: {e}')
+    return evaluated
 
 def _ffmpeg_read(video_path, loglevel='quiet'):
     #Open the video file using ffmpeg
@@ -22,8 +27,8 @@ def _ffmpeg_read(video_path, loglevel='quiet'):
     meta_info= safe_eval(probe['format']['tags']['XARRAY']) #Custom info that we have stored
 
     #Extract video parameters
-    width = int(video_info['width'])
-    height = int(video_info['height'])
+    width= int(video_info['width'])
+    height= int(video_info['height'])
     
     channels= len(safe_eval(meta_info['BANDS']))
     num_frames= int(meta_info['FRAMES'])
@@ -78,36 +83,6 @@ def _ffmpeg_write(video_path, array, output_params, loglevel='quiet', metadata={
     #Close the ffmpeg process
     process.stdin.close()
     process.wait()
-
-#Bakwards function
-def video2xarray(input_path, array_id, fmt='mkv'):
-    #To path
-    path= Path(input_path)
-    
-    #Load xarray
-    x= xr.open_dataset(path / array_id / 'x.nc')
-    
-    #Go over videos, read them, and integrate them into the dataset
-    for video_path in (path / array_id).glob(f'*.{fmt}'):
-        
-        #Read array and meta
-        array, meta_info= _ffmpeg_read(video_path)
-        bands= safe_eval(meta_info['BANDS'])
-        coords_dims= safe_eval(meta_info['COORDS_DIMS'])
-        attrs= safe_eval(meta_info['ATTRS'])
-        value_range= safe_eval(meta_info['RANGE'])
-        compression= str(meta_info['COMPRESSION'])
-        
-        #Rescale array
-        if compression == 'lossy':
-            array= array.astype(np.float32) / 255 * (value_range[1] - value_range[0]) + value_range[0]
-        
-        #Go over bands and set them into the xarray
-        for i, (band, attr) in enumerate(zip(bands, attrs.values())):
-            data= array[...,i] if len(array.shape) == 4 else array
-            x[band]= xr.DataArray(data=data, dims=list(coords_dims), attrs=attr)
-            
-    return x
 
 def sanitize_attributes(x):
     attrs_new={}
@@ -166,6 +141,8 @@ def plot_image(x, band_names, mask_name='cloudmask_en', t_name='time',
             figsize=(27.5,10),
             stack_every=73, #Stack every year (approx.) 73*5=365
                   )
+    
+    Path(save_name).parent.mkdir(exist_ok=True, parents=True)
     cv2.imwrite(save_name, img_comp[...,[2,1,0]])
     if show:
         display(HTML(f'<h4>{Path(save_name).stem}</h4>'))
@@ -186,6 +163,7 @@ def normalize(array, minmax=(0,1.)):
         array= (array - minmax[0]) / (minmax[1] - minmax[0]) * 255
         array[array > 255]= 255
         array[array < 0]= 0
+        array[np.isnan(array)]= 0
         array= array.astype(np.uint8)
     return array
 
@@ -267,103 +245,138 @@ def gap_fill(x:xr.Dataset, fill_bands:List[str], mask_band:str, fill_nans:bool=T
 def xarray2video(x, array_id, conversion_rules, value_range=(0.,1.), compute_stats=False,
                  lossy_params={'c:v': 'libx264', 'r': 30, 'preset': 'slow', 'crf': 11},
                  lossless_params={'c:v': 'ffv1'}, output_path='./', fmt='mkv',
-                 loglevel='quiet', use_ssim=False):
+                 loglevel='quiet', use_ssim=False, exceptions='raise'):
     
     array_dict= {} #Only filled if compute_stats is True
     for name, (bands, coord_names, compression) in conversion_rules.items():
-        #Array -> uint8, shape: (t, x, y, (3))
-        if isinstance(bands, str):
-            #Get the array and permute into ordering (t, x, y, (3)), type uint8, and range (0,255)
-            channels= 1
-            coords= x[bands].coords.dims
-            attrs= {bands:x[bands].attrs}
-            array= x[bands].transpose(*coord_names).values
-            if compute_stats: array_orig= array.copy()
-            array= normalize(array, minmax=value_range)
-            if compression != 'lossless': 
-                print('Warning: as of now, 1-channel compression takes ~3x as much space as it should'
-                      ' due to gray pix_fmt not being respected by x264, and hence rgb being used.')
-        else:
-            assert len(bands) in [3,4], f'For {name=} expected to find 3 or 4 bands, found {bands=}'
-            channels= len(bands)
-            assert channels != 4, f'Warning: {channels=} is not currently supported. '+\
-                'It should be possible with c:v=vp9 and format=yuva420p, but it is still using yuv420p '+\
-                'and generating 1.6x as many frames as requested...'
-            coords= x[bands[0]].coords.dims
-            attrs= {b:x[b].attrs for b in bands}
-            array= np.stack([x[b].transpose(*coord_names).values for b in bands], axis=-1)
-            if compute_stats: array_orig= array.copy()
-            array= normalize(array, minmax=value_range)
-        
-        #Add custom metainfo
-        metadata= {}
-        metadata['BANDS']= str([bands]) if isinstance(bands, str) else str(bands)
-        metadata['COORDS_DIMS']= str(coords)
-        metadata['ATTRS']= str(attrs)
-        metadata['FRAMES']= str(array.shape[0])
-        metadata['RANGE']= str(value_range)
-        metadata['COMPRESSION']= str(compression)
-        
-        output_path= Path(output_path)
-        (output_path / array_id).mkdir(exist_ok=True, parents=True)
-        output_path_video= output_path / array_id / f'{name}.{fmt}'
-
-        #Write with ffmpeg
-        t0= time.time()
-        params= lossy_params if compression == 'lossy' else lossless_params
-        params['pix_fmt']= output_pix_fmt_dict[channels]
-        params['r']= 30
-        _ffmpeg_write(str(output_path_video), array, params, loglevel=loglevel, 
-                      channels=channels, metadata=metadata)
-        t1= time.time()
-        
-        #Modify minicube to delete the bands we just processed
-        x= x.drop_vars(bands)
-        
-        #Show stats
-        if compute_stats:
-            #Size and time
-            array_size= array.size * array.itemsize / 2**20 #In Mb
-            video_size= output_path_video.stat().st_size / 2**20 #In Mb
-            percentage= (video_size / array_size)*100
-            
-            print(f'{name}: {array_size:.2f}Mb -> {video_size:.2f}Mb '+\
-                  f'({percentage:.2f}% of original size) in {t1 - t0:.2f}s'\
-                  f'\n - {params=}')
-            
-            #Assess read time and reconstruction quality
-            t0= time.time()
-            array2, metadata= _ffmpeg_read(str(output_path_video))
-            t1= time.time()
-            assert array2.shape == array_orig.shape, f'{array2.shape=} != {array_orig.shape=}'
-            
-            if compression == 'lossy':
-                array2= array2.astype(np.float32) / 255 * (value_range[1] - value_range[0]) + value_range[0]
-                
-                # ssim_arr= ssim(array_orig, array2, channel_axis=3 if channels==3 else None)
-                # print(f' - SSIM {ssim_arr:.6f}, read in {t1 - t0:.2f}s')
-
-                array_orig2= np.copy(array_orig)
-                array_orig2[array_orig2 > value_range[1]]= value_range[1]
-                array_orig2[array_orig2 < value_range[0]]= value_range[0]
-                
-                if use_ssim:
-                    ssim_arr2= ssim(array_orig2, array2, channel_axis=-1 if channels > 1 else None)
-                    print(f' - SSIM_sat {ssim_arr2:.6f} (input saturated to [{value_range[0], value_range[1]}])')
-                
-                mse= ((array_orig2 - array2)**2).mean()
-                print(f' - MSE_sat {mse:.6f} (input saturated to [{value_range[0], value_range[1]}])')
-
+        try:
+            #Array -> uint8, shape: (t, x, y, (3))
+            if isinstance(bands, str):
+                #Get the array and permute into ordering (t, x, y, (3)), type uint8, and range (0,255)
+                channels= 1
+                coords= x[bands].coords.dims
+                attrs= {bands:x[bands].attrs}
+                array= x[bands].transpose(*coord_names).values
+                if compute_stats: array_orig= array.copy()
+                array= normalize(array, minmax=value_range)
+                if compression != 'lossless': 
+                    print('Warning: as of now, 1-channel compression takes ~3x as much space as it should'
+                          ' due to gray pix_fmt not being respected by x264, and hence rgb being used.')
             else:
-                acc= (array2==array_orig).mean()
-                print(f' - acc {acc:.2f}')
-                if acc != 1:
-                    mse= ((array_orig2 - array2)**2).mean()
+                assert len(bands) in [3,4], f'For {name=} expected to find 3 or 4 bands, found {bands=}'
+                channels= len(bands)
+                assert channels != 4, f'Warning: {channels=} is not currently supported. '+\
+                    'It should be possible with c:v=vp9 and format=yuva420p, but it is still using yuv420p '+\
+                    'and generating 1.6x as many frames as requested...'
+                coords= x[bands[0]].coords.dims
+                attrs= {b:x[b].attrs for b in bands}
+                array= np.stack([x[b].transpose(*coord_names).values for b in bands], axis=-1)
+                if compute_stats: array_orig= array.copy()
+                array= normalize(array, minmax=value_range)
+
+            #Add custom metainfo
+            metadata= {}
+            metadata['BANDS']= str([bands]) if isinstance(bands, str) else str(bands)
+            metadata['COORDS_DIMS']= str(coords)
+            metadata['ATTRS']= str(attrs)
+            metadata['FRAMES']= str(array.shape[0])
+            metadata['RANGE']= str(value_range)
+            metadata['COMPRESSION']= str(compression)
+
+            output_path= Path(output_path)
+            (output_path / array_id).mkdir(exist_ok=True, parents=True)
+            output_path_video= output_path / array_id / f'{name}.{fmt}'
+
+            #Write with ffmpeg
+            t0= time.time()
+            params= lossy_params if compression == 'lossy' else lossless_params
+            params['pix_fmt']= output_pix_fmt_dict[channels]
+            params['r']= 30
+            _ffmpeg_write(str(output_path_video), array, params, loglevel=loglevel, 
+                          channels=channels, metadata=metadata)
+            t1= time.time()
+
+            #Modify minicube to delete the bands we just processed
+            x= x.drop_vars(bands)
+
+            #Show stats
+            if compute_stats:
+                #Size and time
+                array_size= array.size * array.itemsize / 2**20 #In Mb
+                video_size= output_path_video.stat().st_size / 2**20 #In Mb
+                percentage= (video_size / array_size)*100
+
+                print(f'{name}: {array_size:.2f}Mb -> {video_size:.2f}Mb '+\
+                      f'({percentage:.2f}% of original size) in {t1 - t0:.2f}s'\
+                      f'\n - {params=}')
+
+                #Assess read time and reconstruction quality
+                t0= time.time()
+                array2, metadata= _ffmpeg_read(str(output_path_video))
+                t1= time.time()
+                assert array2.shape == array_orig.shape, f'{array2.shape=} != {array_orig.shape=}'
+
+                if compression == 'lossy':
+                    array2= array2.astype(np.float32) / 255 * (value_range[1] - value_range[0]) + value_range[0]
+
+                    # ssim_arr= ssim(array_orig, array2, channel_axis=3 if channels==3 else None)
+                    # print(f' - SSIM {ssim_arr:.6f}, read in {t1 - t0:.2f}s')
+
+                    array_orig2= np.copy(array_orig)
+                    array_orig2[array_orig2 > value_range[1]]= value_range[1]
+                    array_orig2[array_orig2 < value_range[0]]= value_range[0]
+
+                    if use_ssim:
+                        ssim_arr2= ssim(array_orig2, array2, channel_axis=-1 if channels > 1 else None)
+                        print(f' - SSIM_sat {ssim_arr2:.6f} (input saturated to [{value_range[0], value_range[1]}])')
+
+                    mse= np.nanmean((array_orig2 - array2)**2)
                     print(f' - MSE_sat {mse:.6f} (input saturated to [{value_range[0], value_range[1]}])')
-            
-            array_dict[name]= (array2, array_orig)
-            
+
+                else:
+                    acc= np.nanmean(array2==array_orig)
+                    print(f' - acc {acc:.2f}')
+
+                array_dict[name]= (array2, array_orig)
+        except Exception as e:
+            print(f'Exception processing {array_id=} {name=}: {e}')
+            if exceptions == 'raise': raise e
+
     #Save the resulting xarray
     to_netcdf(x, output_path / array_id / f'x.nc')
             
     return array_dict
+
+#Bakwards function
+def video2xarray(input_path, array_id, fmt='mkv', exceptions='raise'):
+    #To path
+    path= Path(input_path)
+    
+    #Load xarray
+    x= xr.open_dataset(path / array_id / 'x.nc')
+    
+    #Go over videos, read them, and integrate them into the dataset
+    for video_path in (path / array_id).glob(f'*.{fmt}'):
+        
+        #Read array and meta
+        array, meta_info= _ffmpeg_read(video_path)
+        bands= safe_eval(meta_info['BANDS'])
+        coords_dims= safe_eval(meta_info['COORDS_DIMS'])
+        attrs= safe_eval(meta_info['ATTRS'])
+        value_range= safe_eval(meta_info['RANGE'])
+        compression= str(meta_info['COMPRESSION'])
+        
+        #Rescale array
+        if compression == 'lossy':
+            array= array.astype(np.float32) / 255 * (value_range[1] - value_range[0]) + value_range[0]
+        
+        #Go over bands and set them into the xarray
+        for i, (band, attr) in enumerate(zip(bands, attrs.values())):
+            try:
+                data= array[...,i] if len(array.shape) == 4 else array
+                x[band]= xr.DataArray(data=data, dims=list(coords_dims), attrs=attr)
+            except Exception as e:
+                print(f'Exception processing {array_id=} {name=}: {e}')
+                if exceptions == 'raise': raise e
+            
+    return x
