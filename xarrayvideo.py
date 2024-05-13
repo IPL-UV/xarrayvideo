@@ -312,32 +312,33 @@ def xarray2video(x, array_id, conversion_rules, value_range=(0.,1.), compute_sta
 
                 #Assess read time and reconstruction quality
                 t0= time.time()
-                array2, metadata= _ffmpeg_read(str(output_path_video))
+                array_comp, metadata= _ffmpeg_read(str(output_path_video))
                 t1= time.time()
-                assert array2.shape == array_orig.shape, f'{array2.shape=} != {array_orig.shape=}'
+                assert array_comp.shape == array_orig.shape, f'{array_comp.shape=} != {array_orig.shape=}'
 
                 if compression == 'lossy':
-                    array2= array2.astype(np.float32) / 255 * (value_range[1] - value_range[0]) + value_range[0]
+                    array_comp= array_comp.astype(np.float32) / 255 * (value_range[1] - value_range[0]) + value_range[0]
 
-                    # ssim_arr= ssim(array_orig, array2, channel_axis=3 if channels==3 else None)
+                    # ssim_arr= ssim(array_orig, array_comp, channel_axis=3 if channels==3 else None)
                     # print(f' - SSIM {ssim_arr:.6f}, read in {t1 - t0:.2f}s')
 
-                    array_orig2= np.copy(array_orig)
-                    array_orig2[array_orig2 > value_range[1]]= value_range[1]
-                    array_orig2[array_orig2 < value_range[0]]= value_range[0]
+                    array_orig_sat= np.copy(array_orig)
+                    array_orig_sat[array_orig_sat > value_range[1]]= value_range[1]
+                    array_orig_sat[array_orig_sat < value_range[0]]= value_range[0]
 
                     if use_ssim:
-                        ssim_arr2= ssim(array_orig2, array2, channel_axis=-1 if channels > 1 else None)
+                        ssim_arr2= ssim(array_orig_sat, array_comp, channel_axis=-1 if channels > 1 else None,
+                                        data_range=value_range[1]-value_range[0])
                         print(f' - SSIM_sat {ssim_arr2:.6f} (input saturated to [{value_range[0], value_range[1]}])')
 
-                    mse= np.nanmean((array_orig2 - array2)**2)
+                    mse= np.nanmean((array_orig_sat - array_comp)**2)
                     print(f' - MSE_sat {mse:.6f} (input saturated to [{value_range[0], value_range[1]}])')
 
                 else:
-                    acc= np.nanmean(array2==array_orig)
+                    acc= np.nanmean(array_comp==array_orig)
                     print(f' - acc {acc:.2f}')
 
-                array_dict[name]= (array2, array_orig)
+                array_dict[name]= (array_comp, array_orig)
         except Exception as e:
             print(f'Exception processing {array_id=} {name=}: {e}')
             if exceptions == 'raise': raise e
