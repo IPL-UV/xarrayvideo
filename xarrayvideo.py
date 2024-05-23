@@ -27,11 +27,11 @@ def _ffmpeg_read(video_path, loglevel='quiet'):
     width= int(video_info['width'])
     height= int(video_info['height'])
     
-    pix_fmt= video_info['pix_fmt']
-    pix_fmt_meta= meta_info['PIX_FMT']
-    if pix_fmt != pix_fmt_meta:
-        print(f'Warning: requested pixel format ({pix_fmt_meta}) is different from'
-              f' actual pixel format ({pix_fmt})')
+    actual_pix_fmt= video_info['pix_fmt']
+    requested_pix_fmt= meta_info['REQ_PIX_FMT']
+    output_pix_fmt= meta_info['OUT_PIX_FMT']
+    if actual_pix_fmt != requested_pix_fmt:
+        print(f'Warning: {requested_pix_fmt=} is different from {actual_pix_fmt=}')
     
     channels= len(safe_eval(meta_info['BANDS']))
     num_frames= int(meta_info['FRAMES'])
@@ -48,7 +48,7 @@ def _ffmpeg_read(video_path, loglevel='quiet'):
     process = (
         ffmpeg
         .input(video_path)
-        .output('pipe:', format='rawvideo', pix_fmt=pix_fmt_meta, loglevel=loglevel)
+        .output('pipe:', format='rawvideo', pix_fmt=output_pix_fmt, loglevel=loglevel)
         .run_async(pipe_stdout=True)
     )
 
@@ -358,9 +358,31 @@ def xarray2video(x, array_id, conversion_rules, value_range=(0.,1.), compute_sta
                 if compute_stats: array_orig= array.copy()
                 array= normalize(array, minmax=value_range)
 
+            #Update params
+            params= lossy_params if compression == 'lossy' else lossless_params
+            params['pix_fmt']= req_pix_fmt
+            params['r']= 30
+                
             #Choose pixel format
-            input_pix_fmt= {1:'gray', 3:'rgb24', 4:'yuva420p'}[channels]
-            output_pix_fmt= {1:'gray', 3:'rgb24', 4:'yuva420p'}[channels]            
+            if params['c:v'] == 'libx264':
+                #For x264: no alpha support, gray is somehow NOT working
+                input_pix_fmt= {1:'gray', 3:'rgb24'}[channels] #Input
+                req_pix_fmt= {1:'gray', 3:'yuv444p'}[channels] #Video
+                out_pix_fmt= {1:'gray', 3:'rgb24'}[channels] #Output
+                
+            elif params['c:v'] == 'libx265':
+                #For x265: generally worse than x264
+                input_pix_fmt= {1:'gray', 3:'gbrp'}[channels] #Input
+                req_pix_fmt= {1:'gray', 3:'gbrp'}[channels] #Video
+                out_pix_fmt= {1:'gray', 3:'gbrp'}[channels] #Output
+            elif params['c:v'] == 'vp9':
+                #For vp9
+                input_pix_fmt= {1:'gray', 3:'gbrp'}[channels] #Input
+                req_pix_fmt= {1:'gray', 3:'gbrp', 4:'yuva420p'}[channels] #Video
+                out_pix_fmt= {1:'gray', 3:'gbrp'}[channels] #Output
+            else:
+                assert compression == 'lossless', \
+                    f'For lossy compression only [libx264, libx265, vp9] are supported'
                 
             #Add custom metainfo
             metadata= {}
@@ -370,7 +392,8 @@ def xarray2video(x, array_id, conversion_rules, value_range=(0.,1.), compute_sta
             metadata['FRAMES']= str(array.shape[0])
             metadata['RANGE']= str(value_range)
             metadata['COMPRESSION']= str(compression)
-            metadata['PIX_FMT']= output_pix_fmt
+            metadata['OUT_PIX_FMT']= out_pix_fmt
+            metadata['REQ_PIX_FMT']= req_pix_fmt
 
             output_path= Path(output_path)
             (output_path / array_id).mkdir(exist_ok=True, parents=True)
@@ -380,9 +403,6 @@ def xarray2video(x, array_id, conversion_rules, value_range=(0.,1.), compute_sta
 
             #Write with ffmpeg
             t0= time.time()
-            params= lossy_params if compression == 'lossy' else lossless_params
-            params['pix_fmt']= output_pix_fmt
-            params['r']= 30
             frame_list= [f for f in array]
             _ffmpeg_write(str(output_path_video), frame_list, 
                           array.shape[1], array.shape[2], params, loglevel=loglevel, 
