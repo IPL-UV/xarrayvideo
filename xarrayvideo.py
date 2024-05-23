@@ -358,12 +358,8 @@ def xarray2video(x, array_id, conversion_rules, value_range=(0.,1.), compute_sta
                 if compute_stats: array_orig= array.copy()
                 array= normalize(array, minmax=value_range)
 
-            #Update params
-            params= lossy_params if compression == 'lossy' else lossless_params
-            params['pix_fmt']= req_pix_fmt
-            params['r']= 30
-                
             #Choose pixel format
+            params= lossy_params if compression == 'lossy' else lossless_params
             if params['c:v'] == 'libx264':
                 #For x264: no alpha support, gray is somehow NOT working
                 input_pix_fmt= {1:'gray', 3:'rgb24'}[channels] #Input
@@ -403,6 +399,8 @@ def xarray2video(x, array_id, conversion_rules, value_range=(0.,1.), compute_sta
 
             #Write with ffmpeg
             t0= time.time()
+            params['pix_fmt']= req_pix_fmt
+            params['r']= 30
             frame_list= [f for f in array]
             _ffmpeg_write(str(output_path_video), frame_list, 
                           array.shape[1], array.shape[2], params, loglevel=loglevel, 
