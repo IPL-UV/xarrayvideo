@@ -9,13 +9,12 @@ import xarray as xr, numpy as np, ffmpeg
 from skimage.metrics import structural_similarity as ssim
 import matplotlib.pyplot as plt
 
-def plot_simple(img, factor=3, transpose=None, title=None, figsize=(4,4)):
+def plot_simple(img, max_val, factor=3, transpose=None, title=None, figsize=(4,4)):
     plt.figure(figsize=figsize)
-    max_val= 255 if img.dtype == np.uint8 else 1.
     if transpose is not None:
-        plt.imshow(np.minimum(np.transpose(img, transpose)*factor, max_val)) 
+        plt.imshow(np.minimum(np.transpose(img, transpose)*factor, max_val)/max_val) 
     else:
-        plt.imshow(np.minimum(img*factor, max_val))
+        plt.imshow(np.minimum(img*factor, max_val)/max_val)
     plt.grid(False)
     plt.axis('off')
     if title: plt.title(title)

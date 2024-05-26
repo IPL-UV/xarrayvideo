@@ -9,6 +9,23 @@ import xarray as xr, numpy as np, ffmpeg
 from skimage.metrics import structural_similarity as ssim
 import matplotlib.pyplot as plt
 
+#Examples of formats for ffv1
+#yuv420p yuva420p yuva422p yuv444p yuva444p yuv440p yuv422p yuv411p yuv410p bgr0 bgra yuv420p16le 
+#yuv422p16le yuv444p16le yuv444p9le yuv422p9le yuv420p9le yuv420p10le yuv422p10le yuv444p10le yuv420p12le 
+#yuv422p12le yuv444p12le yuva444p16le yuva422p16le yuva420p16le yuva444p10le yuva422p10le yuva420p10le 
+#yuva444p9le yuva422p9le yuva420p9le gray16le gray gbrp9le gbrp10le gbrp12le gbrp14le gbrap10le gbrap12le 
+#ya8 gray10le gray12le gbrp16le rgb48le gbrap16le rgba64le gray9le yuv420p14le yuv422p14le yuv444p14le 
+#yuv440p10le yuv440p12le
+
+def detect_rgb(fmt):
+    for ordering in ['rgb', 'rbg', 'gbr', 'grb', 'brg', 'bgr']
+        if ordering in fmt: 
+            return ordering
+        else return None
+
+def detect_planar(fmt):
+    return 'p' in fmt
+
 def safe_eval(s):
     'Evaluates only simple expressions for safety over eval'
     evaluated= None
@@ -110,21 +127,41 @@ def gap_fill(x:xr.Dataset, fill_bands:List[str], mask_band:str, fill_nans:bool=T
     
     return x_new
         
-# def reorder_coords(array, coords_in, coords_out):
-#     '''
-#         Permutes and reorders an array from coords_in into coords_out
-#         E.g.: coords_in= ('y', 'x', 't'), coords_out= ('t', 'x', 'y')
-#     '''
-#     new_order= [coords_out.index(i) for i in coords_in]
-#     breakpoint()
-#     return np.transpose(array, new_order)
+def reorder_coords(array, coords_in, coords_out):
+    '''
+        Permutes and reorders an array from coords_in into coords_out
+        E.g.: coords_in= ('y', 'x', 't'), coords_out= ('t', 'x', 'y')
+    '''
+    new_order= [coords_out.index(i) for i in coords_in]
+    return np.transpose(array, new_order)
 
-def normalize(array, minmax=(0,1.)):
-    'If array is not uint8, clip array to `minmax` and rescale to [0, 255]' 
+def reorder_coords_axis(array, coords_in, coords_out, axis=-1):
+    '''
+        Permutes and reorders an axis of an array from coords_in into coords_out
+        E.g.: coords_in= ('y', 'x', 't'), coords_out= ('t', 'x', 'y')
+    '''
+    new_order= [coords_out.index(i) for i in coords_in]
+    #Move reorder axis to position 0
+    return np.swapaxes(np.swapaxes(array, axis, 0)[new_order], axis, 0)
+
+def normalize(array, minmax=(0.,1.), bits=8):
+    '''
+        If array is not uint8, clip array to `minmax` and rescale to [0, 2**bits].
+        For bits=8, uint8 is used as output, for bits 9-16, uint16 is used 
+    '''
+    assert bits >=8 and bits <=16, 'Only 8 to 16 bits supported'
+    max_value= 2**bits - 1
     if array.dtype != np.uint8:
-        array= (array - minmax[0]) / (minmax[1] - minmax[0]) * 255
-        array[array > 255]= 255
+        array= (array - minmax[0]) / (minmax[1] - minmax[0]) * max_value
+        array[array > max_value]= max_value
         array[array < 0]= 0
         array[np.isnan(array)]= 0
-        array= array.astype(np.uint8)
+        array= np.round(array).astype(np.uint8 if bits == 8 else np.uint16)
     return array
+
+def denormalize(array, minmax=(0.,1.), bits=8):
+    '''
+        Transform to float32, and undo the scaling done in `normalize`
+    '''
+    max_value= 2**bits - 1
+    return array.astype(np.float32) / max_value * (minmax[1] - minmax[0]) + minmax[0]

@@ -28,7 +28,8 @@ def _ffmpeg_read(video_path, loglevel='quiet'):
     if actual_pix_fmt != requested_pix_fmt:
         print(f'Warning: {requested_pix_fmt=} is different from {actual_pix_fmt=}')
     
-    planar_out= meta_info['PLANAR'] == True or meta_info['PLANAR'] == 'True'
+    planar_out= meta_info['PLANAR'] in [True, 'True']
+    bits= int(meta_info['BITS'])
     channels= len(safe_eval(meta_info['BANDS']))
     num_frames= int(meta_info['FRAMES'])
     
@@ -49,13 +50,12 @@ def _ffmpeg_read(video_path, loglevel='quiet'):
     )
 
     #Reshape
-    if channels == 1:  
-        output_shape= [num_frames, height, width]
-    elif channels >= 3:
-        if planar_out: output_shape= [num_frames, channels, height, width]
-        else:          output_shape= [num_frames, height, width, channels]
+    if planar_out: 
+        output_shape= [num_frames, channels, height, width]
+    else:          
+        output_shape= [num_frames, height, width, channels]
     
-    data= np.frombuffer(process.stdout.read(), np.uint8)
+    data= np.frombuffer(process.stdout.read(), np.uint8 if bits==8 else np.uint16)
     assert len(data) == np.prod(output_shape),\
         f'Video {len(data)=} cannot be reshaped into {output_shape=}. '\
         f'Video data is {len(data)/np.prod(output_shape)}x longer'
@@ -66,7 +66,7 @@ def _ffmpeg_read(video_path, loglevel='quiet'):
     process.wait()
     
     #Convert back from planar if needed
-    if planar_out and len(video_data.shape) == 4:
+    if planar_out:
         video_data= np.transpose(video_data, (0, 2, 3, 1)) #(t, c, x, y) > (t, x, y, c)
 
     return video_data, meta_info
@@ -88,7 +88,7 @@ def _ffmpeg_write(video_path, array, x, y, output_params, planar_in=True,
              )
                 
     #Convert to planar if needed
-    if planar_in and len(array.shape) == 4:
+    if planar_in:
         array2= np.transpose(array, (0, 3, 1, 2)) #(t, x, y, c) > (t, c, x, y)
     else:
         array2= array
@@ -98,8 +98,9 @@ def _ffmpeg_write(video_path, array, x, y, output_params, planar_in=True,
         try:
             process.stdin.write(frame.tobytes())
         except Exception as e:
-            print(f'Exception processing frames: {e}. '
+            print(f'Exception processing frames: '
                   'Try rerunning with `loglevel=\'verbose\'` for better error messages.')
+            raise e
 
     #Close the ffmpeg process
     process.stdin.close()
