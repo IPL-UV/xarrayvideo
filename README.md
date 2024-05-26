@@ -6,21 +6,46 @@ Basically, this library provides two functions: `xarray2video` to encode some `x
 For the provided example `xarray`, we compress bands `'B04','B03','B02'` into video `rgb` (lossy), bands `'B8A','B06','B05'` (lossy) into video ir3, a cloud mask with 5 classes into video `cm` (lossless) and Sentinel's Scene Classification Layer (SCL) into video `scl` (lossless).
 
 ```
-rgb: 23.20Mb -> 0.95Mb (4.11% of original size) in 1.10s
- - params={'c:v': 'libx264', 'preset': 'slow', 'crf': 11, 'pix_fmt': 'rgb24', 'r': 30}
- - SSIM_sat 0.998597 (input saturated to [(0.0, 1.0)])
- - MSE_sat 0.000055 (input saturated to [(0.0, 1.0)])
-ir3: 23.20Mb -> 0.93Mb (4.01% of original size) in 1.17s
- - params={'c:v': 'libx264', 'preset': 'slow', 'crf': 11, 'pix_fmt': 'rgb24', 'r': 30}
- - SSIM_sat 0.998346 (input saturated to [(0.0, 1.0)])
- - MSE_sat 0.000064 (input saturated to [(0.0, 1.0)])
+rgb: 92.81Mb -> 1.37Mb (1.47% of original size) in 11.32s
+ - params={'c:v': 'libx265', 'preset': 'slow', 'crf': 6, 'pix_fmt': 'yuv444p10le', 'r': 30}
+ - Decompression time 0.18s
+ - MSE_sat 0.000020 (input saturated to [(0.0, 1.0)])
+ - SNR_sat 39.4120 (input saturated to [(0.0, 1.0)])
+ - PSNR_sat 47.0182 (input saturated to [(0.0, 1.0)])
+ - Exp. SA 0.0167 (input saturated to [(0.0, 1.0)])
+ - Err. SA 0.0001 (input saturated to [(0.0, 1.0)])
+ 
+ir3: 92.81Mb -> 1.37Mb (1.47% of original size) in 12.01s
+ - params={'c:v': 'libx265', 'preset': 'slow', 'crf': 6, 'pix_fmt': 'yuv444p10le', 'r': 30}
+ - Decompression time 0.20s
+ - MSE_sat 0.000027 (input saturated to [(0.0, 1.0)])
+ - SNR_sat 38.3215 (input saturated to [(0.0, 1.0)])
+ - PSNR_sat 45.7592 (input saturated to [(0.0, 1.0)])
+ - Exp. SA 0.0129 (input saturated to [(0.0, 1.0)])
+ - Err. SA 0.0000 (input saturated to [(0.0, 1.0)])
+ 
 cm: 7.73Mb -> 0.08Mb (0.98% of original size) in 0.10s
  - params={'vcodec': 'ffv1', 'pix_fmt': 'gray', 'r': 30}
  - acc 1.00
+ 
 scl: 7.73Mb -> 0.29Mb (3.70% of original size) in 0.20s
  - params={'vcodec': 'ffv1', 'pix_fmt': 'gray', 'r': 30}
  - acc 1.00
 ```
+
+Here is a plot with some very early results:
+![Results](examples/results_bpppb.png)
+
+## Features
+
+- Planar / non-planar input formats (depends on video codec)
+- 8 / 10 / 12 / 16 bits (depends on video codec)
+- Lossy & lossless encoding
+- 1 / 3 / 4 channels
+  - 1 channel: great lossless compression with `ffv1` (8,10,12,16 bits), bad lossy compression with vp9 (8,10,12 bits) **(WIP: should work better)**
+  - 3 channels: great lossless compression with `vp9, lossless 1` (8,10,12 bits), great lossy comporession with `x264` (8,10 bits) or `x265` (8,10,12 bits) 
+  - 4 channels: theoretically supported with `vp9` for both lossy and lossless, but currently not working **(WIP)**
+- KLT / PCA transform **(WIP)**
 
 ## Installation 
 
@@ -48,7 +73,7 @@ Then run `jupyter lab` or VSCode to open example.ipynb
 
 ## Examples
 
-Example of compression 23.20Mb -> 0.95Mb (4.11% of original size). The quality loss is visually imperceptible.
+Example of compression 92.81Mb -> 1.37Mb (1.47% of original size). The quality loss is visually imperceptible.
 
 Original (download for full size):
 ![Original image](examples/RGB_original.jpg)
