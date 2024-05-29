@@ -5,9 +5,7 @@ import ast, sys, os, yaml, time, warnings
 from typing import List, Optional
 
 #Others
-import xarray as xr, numpy as np, ffmpeg
-from skimage.metrics import structural_similarity as ssim
-import matplotlib.pyplot as plt
+import xarray as xr, numpy as np
 
 #Examples of formats for ffv1
 #yuv420p yuva420p yuva422p yuv444p yuva444p yuv440p yuv422p yuv411p yuv410p bgr0 bgra yuv420p16le 
@@ -18,10 +16,11 @@ import matplotlib.pyplot as plt
 #yuv440p10le yuv440p12le
 
 def detect_rgb(fmt):
-    for ordering in ['rgb', 'rbg', 'gbr', 'grb', 'brg', 'bgr']
+    for ordering in ['rgb', 'rbg', 'gbr', 'grb', 'brg', 'bgr']:
         if ordering in fmt: 
             return ordering
-        else return None
+        else: 
+            return None
 
 def detect_planar(fmt):
     return 'p' in fmt

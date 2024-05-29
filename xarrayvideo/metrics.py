@@ -5,9 +5,8 @@ import ast, sys, os, yaml, time, warnings
 from typing import List, Optional
 
 #Others
-import xarray as xr, numpy as np, ffmpeg
+import numpy as np
 from skimage.metrics import structural_similarity as ssim
-import matplotlib.pyplot as plt
 
 def SA(original, compressed, channel_dim):
     '''

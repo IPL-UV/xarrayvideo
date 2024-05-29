@@ -5,8 +5,7 @@ import ast, sys, os, yaml, time, warnings
 from typing import List, Optional
 
 #Others
-import xarray as xr, numpy as np, ffmpeg
-from skimage.metrics import structural_similarity as ssim
+import numpy as np
 import matplotlib.pyplot as plt
 
 def plot_simple(img, max_val, factor=3, transpose=None, title=None, figsize=(4,4)):

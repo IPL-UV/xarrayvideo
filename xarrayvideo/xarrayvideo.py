@@ -8,6 +8,7 @@ from typing import List, Optional
 import xarray as xr, numpy as np, ffmpeg
 from skimage.metrics import structural_similarity as ssim
 from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 
 #Own lib
 from .utils import (safe_eval, to_netcdf, normalize, denormalize, 
@@ -29,7 +30,7 @@ def get_pix_fmt(params, channels, bits):
         #gbrp is theoretically not supported, but it works
         #gray is not supported either, x264 just transforms the array to gbrp
         input_pix_fmt= {1:'gray', 3:'gbrp'}[channels] #Input / Output
-        req_pix_fmt= {1:'gray', 3:'yuv444p'}[channels] #Video 
+        req_pix_fmt= {1:'gray', 3:'gbrp'}[channels] #Video 
         if bits == 8: 
             pass
         elif bits in [10]:
@@ -40,7 +41,7 @@ def get_pix_fmt(params, channels, bits):
     elif params['c:v'] == 'libx265':
         #For x265
         input_pix_fmt= {1:'gray', 3:'gbrp'}[channels] #Input
-        req_pix_fmt= {1:'gray', 3:'yuv444p'}[channels] #Video  
+        req_pix_fmt= {1:'gray', 3:'gbrp'}[channels] #Video  
         if bits == 8: 
             pass
         elif bits in [10,12]:
@@ -88,6 +89,66 @@ def get_pix_fmt(params, channels, bits):
         
     return input_pix_fmt, req_pix_fmt, compression
 
+#Crate a dimensionality reduction wrapper
+class DRWrapper:
+    def __init__(self, n_components=0, params=None):
+        #Attributes
+        self.fitted= False
+        self.n_components= n_components
+        self.bands= None
+        
+        #Initialize classes
+        self.scaler= StandardScaler()                
+        self.dr= PCA(n_components=self.n_components)
+        if params is not None:
+            self.set_params(self, params)
+    
+    def fit(self, X):
+        self.fitted= True
+        self.bands= X.shape[-1]
+        X_flat= np.reshape(X, (-1, self.bands))
+        X_flat= self.scaler.fit(X_flat)
+        self.dr.fit(X_flat)
+    
+    def fit_transform(self, X):
+        self.fitted= True
+        final_shape= list(X.shape)
+        final_shape[-1]= self.n_components
+        self.bands=  X.shape[-1]
+        X_flat= np.reshape(X, (-1,self.bands))
+        X_flat= self.scaler.fit_transform(X_flat)
+        X_pca_flat= self.dr.fit_transform(X_flat)
+        return np.reshape(X_pca_flat, final_shape)
+    
+    def transform(self, X):
+        assert self.fitted
+        final_shape= list(X.shape)
+        final_shape[-1]= self.n_components
+        X_flat= np.reshape(X, (-1, self.bands))
+        X_flat= self.scaler.transform(X_flat)
+        X_pca_flat= self.dr.transform(X_flat)
+        return np.reshape(X_pca_flat, final_shape)
+    
+    def inverse_transform(self, Y):
+        assert self.fitted
+        Y_flat= np.reshape(Y, (-1, self.n_components))
+        Y_pca_flat= self.dr.inverse_transform(Y_flat)
+        Y_flat= self.scaler.inverse_transform(Y_flat)
+        return np.reshape(Y_flat, Y.shape)
+    
+    def get_params(self):
+        params={}
+        params['scaler']= self.scaler.get_params()
+        params['dr']= self.dr.get_params()
+        #TODO: Add matrices
+        return params
+    
+    def set_params(self, params):
+        self.fitted= True
+        self.scaler.set_params(**params['scaler'])
+        self.dr.set_params(**params['dr'])
+        #TODO: Add matrices
+
 #Forward function
 def xarray2video(x, array_id, conversion_rules, value_range=(0.,1.), compute_stats=False,
                  output_path='./', fmt='mkv', loglevel='quiet', use_ssim=False, exceptions='raise', 
@@ -110,20 +171,21 @@ def xarray2video(x, array_id, conversion_rules, value_range=(0.,1.), compute_sta
             'preset': 'medium',  #Preset for quality/encoding speed tradeoff: quick, medium, slow (better)
             'crf': 5, #14 default, 11 for higher quality and size
             }
-        if len(config) == 4:
-            bands, coord_names, params, bits= config
-        elif len(config) == 3:
-            bands, coord_names, params= config
-            bits= 8 #Best support, not best choice for technical images
+        if len(config) == 5:
+            bands, coord_names, use_pca, params, bits= config
         elif len(config) == 4:
-            bands, coord_names= config
+            bands, coord_names, use_pca, params= config
+            bits= 8 #Best support, not best choice for technical images
+        elif len(config) == 3:
+            bands, coord_names, use_pca= config
         else:
-            raise AssertionError(f'Params: {config} should be: bands, coord_names, [params], [bits]')
-
+            raise AssertionError(f'Params: {config} should be: bands, coord_names, use_pca, [params], [bits]')
+            
         try:
             #Array -> uint8 or uint16, shape: (t, x, y, c)
             if isinstance(bands, str): bands= [bands]
-            assert len(bands) in [1,3,4], f'For {name=} expected to find 1, 3, or 4 bands, found {bands=}'
+            if not use_pca:
+                assert len(bands) in [1,3,4], f'For {name=} expected to find 1, 3, or 4 bands, found {bands=}'
             channels= len(bands)
             coords= x[bands[0]].coords.dims
             attrs= {b:x[b].attrs for b in bands}
@@ -131,18 +193,28 @@ def xarray2video(x, array_id, conversion_rules, value_range=(0.,1.), compute_sta
             dtype= array.dtype
             if compute_stats: array_orig= array.copy()
             
-#             #TODO: Use PCA
-#             if channels not in [1,3,4]:
-#                 array_flat= np.reshape(array, (-1, channels))
-#                 pca= PCA().fit(array_flat)
-#                 array_pca= pca.transform(array_flat)
-#                 # n_components= (channels // 3) * 3
-#                 # array_pca= array_pca[:,:n_components]
-#                 # pca_params= pca.get_params()
+            #Use PCA
+            use_pca= True
+            if use_pca:
+                #Keep only some components
+                n_components= 6
+                video_files= channels // 3
+                if n_components is None:
+                    n_components= video_files * 3
+                else:
+                    assert n_components % 3 == 0 and n_components < channels
                 
-#                 minmax_values= pca.inverse_transform(np.array([value_range]*channels).T)
-#                 value_range= [minmax_values.min(), minmax_values.max()]
-#                 channels= 3
+                #Initialize classes
+                DR= DRWrapper(n_components=n_components)
+                array_pca= DR.fit_transform(array)
+                #array_pca= array_pca[:,:n_components]
+                
+                #Transform limits to the PCA space and overwrite value_range and channel values
+                minmax_values= DR.transform(np.array([value_range]*channels).T)
+                value_range= [minmax_values.min(), minmax_values.max()]
+                channels= 3
+            else:
+                video_files= 1
                                     
             #Normalize
             array= normalize(array, minmax=value_range, bits=bits)
@@ -157,13 +229,16 @@ def xarray2video(x, array_id, conversion_rules, value_range=(0.,1.), compute_sta
             planar_in= detect_planar(input_pix_fmt)
                 
             #Convert rgb <> gbr, etc.
-            #This is only relevant for watching the output videos
+            #This is only relevant for visualizing the output videos
             if not 'rgb' in input_pix_fmt and channels in [3,4]:
                 ordering= detect_rgb(input_pix_fmt)
-                a= 'a' if channels == 4 else ''
-                array= reorder_coords_axis(array, list('rgb')+a, list(ordering)+a, axis=-1)
+                if ordering is not None:
+                    a= 'a' if channels == 4 else ''
+                    array= reorder_coords_axis(array, list('rgb'+a), list(ordering+a), axis=-1)
+                else:
+                    ordering= 'rgb'
                 
-            #Add custom metainfo
+            #Add custom metainfo used by video2xarray
             metadata= {}
             metadata['BANDS']= str([bands]) if isinstance(bands, str) else str(bands)
             metadata['COORDS_DIMS']= str(coords)
@@ -177,28 +252,32 @@ def xarray2video(x, array_id, conversion_rules, value_range=(0.,1.), compute_sta
             metadata['NORMALIZED']= compression == 'lossy'
             metadata['CHANNEL_ORDER']= ordering #e.g. gbr
 
+            #Pathing
             output_path= Path(output_path)
             (output_path / array_id).mkdir(exist_ok=True, parents=True)
-            output_path_video= output_path / array_id / f'{name}.{fmt}'
+            comp_names= [name] if not use_pca else [f'{name}_{i}' for i in range(video_files)]
             results[name]= {}
-            results[name]['path']= output_path_video
-
-            #Write with ffmpeg
-            t0= time.time()
-            params['pix_fmt']= req_pix_fmt
-            params['r']= 30
-            _ffmpeg_write(str(output_path_video), array, x_len, y_len, params, planar_in=planar_in,
-                          loglevel=loglevel, metadata=metadata, input_pix_fmt=input_pix_fmt)
-            t1= time.time()
-
+            results[name]['path']= [output_path / array_id / f'{cn}.{fmt}' for cn in comp_names]
+            
+            #Go over every set of 3 components if use_pca else ignore the loop
+            t0= time.time()            
+            for i, output_path_video in enumerate(results[name]['path']):
+                #Write with ffmpeg
+                params['pix_fmt']= req_pix_fmt
+                params['r']= 30
+                array_in= array if not use_pca else array_pca[...,i*3:i*(3+1)]
+                _ffmpeg_write(str(output_path_video), array_in, x_len, y_len, params, planar_in=planar_in,
+                              loglevel=loglevel, metadata=metadata, input_pix_fmt=input_pix_fmt)
+                
             #Modify minicube to delete the bands we just processed
             x= x.drop_vars(bands)
+            t1= time.time()
 
             #Show stats
             if compute_stats:
                 #Size and time
-                array_size= array.size * array_orig.itemsize / 2**20 #In Mb (use array_orig dtype)
-                video_size= output_path_video.stat().st_size / 2**20 #In Mb
+                array_size= array_orig.size * array_orig.itemsize / 2**20 #In Mb (use array_orig dtype)
+                video_size= sum([v.stat().st_size / 2**20 for v in results[name]['path']]) #In Mb
                 percentage= (video_size / array_size)*100
 
                 print_fn(f'{name}: {array_size:.2f}Mb -> {video_size:.2f}Mb '+\
@@ -213,10 +292,12 @@ def xarray2video(x, array_id, conversion_rules, value_range=(0.,1.), compute_sta
 
                 #Assess read time and reconstruction quality
                 t0= time.time()
-                array_comp, metadata= _ffmpeg_read(str(output_path_video))
+                array_comp_list= [_ffmpeg_read(v) for v in results[name]['path']]
+                array_comp= np.concatenate(array_comp_list, axis=-1)
                 t1= time.time()
                 results[name]['d_time']= t1 - t0
                 print_fn(f' - Decompression time {results[name]["d_time"]:.2f}s')
+                if use_pca: array_comp= DR.inverse_transform(array_comp)
                 assert array_comp.shape == array_orig.shape, f'{array_comp.shape=} != {array_orig.shape=}'
 
                 #Plot last frame
@@ -230,9 +311,11 @@ def xarray2video(x, array_id, conversion_rules, value_range=(0.,1.), compute_sta
                     # ssim_arr= ssim(array_orig, array_comp, channel_axis=3 if channels==3 else None)
                     # print_fn(f' - SSIM {ssim_arr:.6f}, read in {t1 - t0:.2f}s')
 
+                    #Process the orginal array in the same way as the video, to be able to compare them
                     array_orig_sat= np.copy(array_orig)
                     array_orig_sat[array_orig_sat > value_range[1]]= value_range[1]
                     array_orig_sat[array_orig_sat < value_range[0]]= value_range[0]
+                    array_orig_sat[np.isnan(array_orig_sat)]= 0
 
                     if use_ssim:
                         ssim_arr2= ssim(array_orig_sat, array_comp, channel_axis=-1, 
@@ -290,7 +373,7 @@ def video2xarray(input_path, array_id, fmt='mkv', exceptions='raise', x_name='x'
         value_range= safe_eval(meta_info['RANGE'])
         normalized= meta_info['NORMALIZED'] in [True, 'True']
         bits= int(meta_info['BITS'])
-        ordering= metadata['CHANNEL_ORDER']
+        ordering= meta_info['CHANNEL_ORDER']
         
         #I'm not sure why, but saving the video transposes x and y
         x_pos, y_pos= coords_dims.index(x_name), coords_dims.index(y_name)
@@ -301,9 +384,9 @@ def video2xarray(input_path, array_id, fmt='mkv', exceptions='raise', x_name='x'
             array= denormalize(array, minmax=value_range, bits=bits)
         
         #To rgb if needed
-        if 'rgb' not in ordering:
+        if ordering != 'rgb':
             a= 'a' if len(bands) == 4 else ''
-            array= reorder_coords_axis(array, list(ordering)+a, list('rgb')+a, axis=-1)
+            array= reorder_coords_axis(array, list(ordering+a), list('rgb'+a), axis=-1)
         
         #Go over bands and set them into the xarray
         for i, (band, attr) in enumerate(zip(bands, attrs.values())):
