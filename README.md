@@ -1,11 +1,12 @@
 # xarrayvideo
+
 Save multichannel data from xarray datasets as videos to save up massive amounts of space (e.g. 20-50x compression).
 
 Basically, this library provides two functions: `xarray2video` to encode some `xarray` variables into videos, and `video2xarray` to rebuild the xarray from the videos. As of now, everything is loaded in memory, and lossy compression only accepts videos with 3 chanels (WIP for 1 and 4 channels).
 
 For the provided example `xarray`, we compress bands `'B04','B03','B02'` into video `rgb` (lossy), bands `'B8A','B06','B05'` (lossy) into video ir3, a cloud mask with 5 classes into video `cm` (lossless) and Sentinel's Scene Classification Layer (SCL) into video `scl` (lossless).
 
-```
+```{}
 rgb: 92.81Mb -> 1.37Mb (1.47% of original size) in 11.32s
  - params={'c:v': 'libx265', 'preset': 'slow', 'crf': 6, 'pix_fmt': 'yuv444p10le', 'r': 30}
  - Decompression time 0.18s
@@ -47,17 +48,17 @@ Here is a plot with some very early results:
   - 4 channels: theoretically supported with `vp9` for both lossy and lossless, but currently not working **(WIP)**
 - KLT / PCA transform **(WIP)**
 
-## Installation 
+## Installation
 
-```
+```{bash}
 #Install base requirements
-pip install xarray numpy ffmpeg scikit-image
+pip install xarray numpy ffmpeg scikit-image scikit-learn pyyaml zarr netcdf4 ffmpeg-python
 
 #Requiremetns for temporal alignment
 pip install satalign
 
-#Insall requierements for plotting (optional, but `plot_image` calls will fail)
-pip install ipython cv2
+#Install requierements for plotting (optional, but `plot_image` calls will fail)
+pip install ipython opencv-python
 pip install git+https://github.com/OscarPellicer/txyvis.git
 
 #Install repo

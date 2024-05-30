@@ -52,7 +52,7 @@ def sanitize_xarray(x):
 
 def to_netcdf(x, *args, **kwargs):
     x= sanitize_xarray(x)
-    x.to_netcdf(*args, **kwargs, encoding={var: {'zlib': True} for var in x.variables})
+    x.to_netcdf(*args, **kwargs, encoding={var: {'zlib': True} for var in x.variables}, engine='netcdf4')
 
 def gap_fill(x:xr.Dataset, fill_bands:List[str], mask_band:str, fill_nans:bool=True, fill_zeros:bool=True,
              fill_values:Optional[List[int]]=None, new_mask='invalid', coord_names=('time', 'variable', 'x', 'y'),
