@@ -8,6 +8,32 @@ from typing import List, Optional
 import numpy as np
 from skimage.metrics import structural_similarity as ssim
 
+def SSIM(original, compressed, channel_dim, max_value):
+    '''
+         Computes SSIM
+    '''
+    #To float32
+    o, c= original.astype(np.float32), compressed.astype(np.float32)
+    
+    #Put channel_dim as first dimension (arbitrary, just for consensus)
+    #And flatten the rest of the dimensions
+    #Final shape: (c, -1)
+    o= np.reshape(np.swapaxes(o, channel_dim, 0), (o.shape[channel_dim], -1))
+    c= np.reshape(np.swapaxes(c, channel_dim, 0), (c.shape[channel_dim], -1))
+    
+    #Compute constants
+    c1, c2= max_value**2/10**4, 9*max_value**2/10**4
+    
+    #Compute ssim
+    mu_o, mu_c= o.mean(axis=1), c.mean(axis=1)
+    sigma_o, sigma_c= np.var(o, axis=1), np.var(c, axis=1)
+    sigma_oc= np.cov(o,c)
+    ssim= 1 - (2*mu_o*mu_c + c1) * (2*sigma_oc + c2)/\
+              ((mu_o**2 + mu_c**2 + c1) * (sigma_o + sigma_c + c2) )
+    
+    return ssim, 10*np.log10(ssim)
+
+
 def SA(original, compressed, channel_dim):
     '''
         Computes spectral angle according to:

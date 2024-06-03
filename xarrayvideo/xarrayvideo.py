@@ -12,10 +12,11 @@ from sklearn.preprocessing import StandardScaler
 
 #Own lib
 from .utils import (safe_eval, to_netcdf, normalize, denormalize, 
-                    detect_planar, detect_rgb, reorder_coords_axis)
+                    detect_planar, detect_rgb, reorder_coords_axis,
+                    np2str, str2np)
 from .ffmpeg_wrappers import _ffmpeg_read, _ffmpeg_write
 from .plot import plot_simple
-from .metrics import SA, SNR
+from .metrics import SA, SNR, SSIM
 
 def get_pix_fmt(params, channels, bits):
     'Get the optimal input / compression pix_fmt'
@@ -30,7 +31,7 @@ def get_pix_fmt(params, channels, bits):
         #gbrp is theoretically not supported, but it works
         #gray is not supported either, x264 just transforms the array to gbrp
         input_pix_fmt= {1:'gray', 3:'gbrp'}[channels] #Input / Output
-        req_pix_fmt= {1:'gray', 3:'gbrp'}[channels] #Video 
+        req_pix_fmt= {1:'gray', 3:'yuv444p'}[channels] #Video 
         if bits == 8: 
             pass
         elif bits in [10]:
@@ -41,7 +42,7 @@ def get_pix_fmt(params, channels, bits):
     elif params['c:v'] == 'libx265':
         #For x265
         input_pix_fmt= {1:'gray', 3:'gbrp'}[channels] #Input
-        req_pix_fmt= {1:'gray', 3:'gbrp'}[channels] #Video  
+        req_pix_fmt= {1:'gray', 3:'yuv444p'}[channels] #Video  
         if bits == 8: 
             pass
         elif bits in [10,12]:
@@ -92,6 +93,9 @@ def get_pix_fmt(params, channels, bits):
 #Crate a dimensionality reduction wrapper
 class DRWrapper:
     def __init__(self, n_components=0, params=None):
+        '''
+            Standardize and apply PCA by flattening all dimensions except for the last one
+        '''
         #Attributes
         self.fitted= False
         self.n_components= n_components
@@ -131,10 +135,12 @@ class DRWrapper:
     
     def inverse_transform(self, Y):
         assert self.fitted
+        final_shape= list(Y.shape)
+        final_shape[-1]= self.bands
         Y_flat= np.reshape(Y, (-1, self.n_components))
-        Y_pca_flat= self.dr.inverse_transform(Y_flat)
+        Y_flat= self.dr.inverse_transform(Y_flat)
         Y_flat= self.scaler.inverse_transform(Y_flat)
-        return np.reshape(Y_flat, Y.shape)
+        return np.reshape(Y_flat, final_shape)
     
     def get_params(self):
         params={}
@@ -150,7 +156,7 @@ class DRWrapper:
         #TODO: Add matrices
 
 #Forward function
-def xarray2video(x, array_id, conversion_rules, value_range=(0.,1.), compute_stats=False,
+def xarray2video(x, array_id, conversion_rules, compute_stats=False,
                  output_path='./', fmt='mkv', loglevel='quiet', use_ssim=False, exceptions='raise', 
                  verbose=True):
     '''
@@ -190,11 +196,13 @@ def xarray2video(x, array_id, conversion_rules, value_range=(0.,1.), compute_sta
             coords= x[bands[0]].coords.dims
             attrs= {b:x[b].attrs for b in bands}
             array= np.stack([x[b].transpose(*coord_names).values for b in bands], axis=-1)
+            value_range= np.stack([ np.nanmin(array, axis=tuple(range(array.ndim - 1))), 
+                                    np.nanmax(array, axis=tuple(range(array.ndim - 1))) ], axis=1)
+            # value_range= np.array([[ np.nanmin(array), np.nanmax(array) ]]*len(bands))
             dtype= array.dtype
             if compute_stats: array_orig= array.copy()
             
             #Use PCA
-            use_pca= True
             if use_pca:
                 #Keep only some components
                 n_components= 6
@@ -202,16 +210,16 @@ def xarray2video(x, array_id, conversion_rules, value_range=(0.,1.), compute_sta
                 if n_components is None:
                     n_components= video_files * 3
                 else:
-                    assert n_components % 3 == 0 and n_components < channels
+                    assert n_components % 3 == 0 and n_components <= channels
                 
                 #Initialize classes
+                array[np.isnan(array)]= 0
                 DR= DRWrapper(n_components=n_components)
-                array_pca= DR.fit_transform(array)
-                #array_pca= array_pca[:,:n_components]
+                array= DR.fit_transform(array)
+                #array= array[:,:n_components]
                 
                 #Transform limits to the PCA space and overwrite value_range and channel values
-                minmax_values= DR.transform(np.array([value_range]*channels).T)
-                value_range= [minmax_values.min(), minmax_values.max()]
+                value_range= DR.transform(value_range.T).T
                 channels= 3
             else:
                 video_files= 1
@@ -240,11 +248,14 @@ def xarray2video(x, array_id, conversion_rules, value_range=(0.,1.), compute_sta
                 
             #Add custom metainfo used by video2xarray
             metadata= {}
-            metadata['BANDS']= str([bands]) if isinstance(bands, str) else str(bands)
+            if use_pca:
+                metadata['BANDS']= str(['PCA1', 'PCA2', 'PCA3'])
+            else:
+                metadata['BANDS']= str([bands]) if isinstance(bands, str) else str(bands)
             metadata['COORDS_DIMS']= str(coords)
             metadata['ATTRS']= str(attrs)
             metadata['FRAMES']= str(array.shape[0])
-            metadata['RANGE']= str(value_range)
+            metadata['RANGE']= np2str(value_range)
             metadata['OUT_PIX_FMT']= input_pix_fmt
             metadata['REQ_PIX_FMT']= req_pix_fmt
             metadata['PLANAR']= planar_in
@@ -265,7 +276,7 @@ def xarray2video(x, array_id, conversion_rules, value_range=(0.,1.), compute_sta
                 #Write with ffmpeg
                 params['pix_fmt']= req_pix_fmt
                 params['r']= 30
-                array_in= array if not use_pca else array_pca[...,i*3:i*(3+1)]
+                array_in= array if not use_pca else array[...,i*3:(i+1)*3]
                 _ffmpeg_write(str(output_path_video), array_in, x_len, y_len, params, planar_in=planar_in,
                               loglevel=loglevel, metadata=metadata, input_pix_fmt=input_pix_fmt)
                 
@@ -279,62 +290,72 @@ def xarray2video(x, array_id, conversion_rules, value_range=(0.,1.), compute_sta
                 array_size= array_orig.size * array_orig.itemsize / 2**20 #In Mb (use array_orig dtype)
                 video_size= sum([v.stat().st_size / 2**20 for v in results[name]['path']]) #In Mb
                 percentage= (video_size / array_size)*100
+                bpppb= video_size * 2**20 * 8 / array.size #bits per pixel per band (=bps)
 
                 print_fn(f'{name}: {array_size:.2f}Mb -> {video_size:.2f}Mb '+\
-                         f'({percentage:.2f}% of original size) in {t1 - t0:.2f}s'\
+                         f'({percentage:.2f}% of original size, {bpppb:.4f} bpppb) in {t1 - t0:.2f}s'\
                         f'\n - {params=}')
                 
                 results[name]['original_size']= array_size
                 results[name]['compressed_size']= video_size
                 results[name]['compression']= video_size / array_size
-                results[name]['bpppb']= video_size * 2**20 * 8 / array.size #bits per pixel per band (=bps)
+                results[name]['bpppb']= bpppb
                 results[name]['time']= t1 - t0
 
                 #Assess read time and reconstruction quality
                 t0= time.time()
-                array_comp_list= [_ffmpeg_read(v) for v in results[name]['path']]
+                array_comp_list= [_ffmpeg_read(v)[0] for v in results[name]['path']]
                 array_comp= np.concatenate(array_comp_list, axis=-1)
                 t1= time.time()
                 results[name]['d_time']= t1 - t0
                 print_fn(f' - Decompression time {results[name]["d_time"]:.2f}s')
-                if use_pca: array_comp= DR.inverse_transform(array_comp)
+                if use_pca: 
+                    array_comp= denormalize(array_comp, minmax=value_range, bits=bits)
+                    array_comp= DR.inverse_transform(array_comp)
                 assert array_comp.shape == array_orig.shape, f'{array_comp.shape=} != {array_orig.shape=}'
-
-                #Plot last frame
-                if verbose: 
-                    plot_simple(array_orig[-1], max_val=value_range[1], title='Original')
-                    plot_simple(array_comp[-1], max_val=2**bits-1, title='Compressed')
                 
                 if compression == 'lossy' or dtype!=np.uint8:
-                    array_comp= denormalize(array_comp, minmax=value_range, bits=bits)
+                    if not use_pca: 
+                        array_comp= denormalize(array_comp, minmax=value_range, bits=bits)
+                    
+                    #Plot last frame
+                    if verbose: 
+                        plot_simple(array_orig[-1, ..., -3:], max_val=value_range.max(), title='Original')
+                        plot_simple(array_comp[-1, ..., -3:], max_val=value_range.max(), title='Compressed')
+                        print(f'Saturation values per band {bands}):\n {value_range}')
 
                     # ssim_arr= ssim(array_orig, array_comp, channel_axis=3 if channels==3 else None)
                     # print_fn(f' - SSIM {ssim_arr:.6f}, read in {t1 - t0:.2f}s')
 
                     #Process the orginal array in the same way as the video, to be able to compare them
-                    array_orig_sat= np.copy(array_orig)
-                    array_orig_sat[array_orig_sat > value_range[1]]= value_range[1]
-                    array_orig_sat[array_orig_sat < value_range[0]]= value_range[0]
-                    array_orig_sat[np.isnan(array_orig_sat)]= 0
-
+                    # array_bands=[]
+                    # for c in range(array_orig.shape[-1]):
+                    #     array_c= array_orig[...,c]
+                    #     array_c[array_c > value_range[c,1]]= value_range[c,1]
+                    #     array_c[array_c < 0]= 0
+                    #     array_c[np.isnan(array_c)]= 0
+                    #     array_bands.append(array_c)
+                    # array_orig_sat= np.stack(array_bands, axis=-1)
+                    array_orig_sat= array_orig #TODO
+                    
                     if use_ssim:
-                        ssim_arr2= ssim(array_orig_sat, array_comp, channel_axis=-1, 
-                                        data_range=value_range[1]-value_range[0])
-                        print_fn(f' - SSIM_sat {ssim_arr2:.6f} (input saturated to [{value_range[0], value_range[1]}])')
-                        results[name]['ssim']= ssim_arr2
+                        ssim_val, ssim_val_db= SSIM(array_orig_sat, array_comp, channel_dim=-1, 
+                                                    max_value=value_range.max())
+                        ssim_val2= ssim(array_orig_sat, array_comp, channel_axis=-1, 
+                                        data_range=value_range.max()-value_range.min())
+                        print_fn(f' - SSIM_sat {ssim_val:.6f} {ssim_val2:.6f} (input saturated)')
+                        results[name]['ssim']= ssim_val
 
-                    snr, psnr, mse= SNR(array_orig_sat, array_comp, max_value=value_range[1])
+                    snr, psnr, mse= SNR(array_orig_sat, array_comp, max_value=value_range.max())
                     exp_sa, err_sa= SA(array_orig_sat, array_comp, channel_dim=-1)
-                    print_fn(f' - MSE_sat {mse:.6f} (input saturated to [{value_range[0], value_range[1]}])')
-                    print_fn(f' - SNR_sat {snr:.4f} (input saturated to [{value_range[0], value_range[1]}])')
-                    print_fn(f' - PSNR_sat {psnr:.4f} (input saturated to [{value_range[0], value_range[1]}])')
-                    print_fn(f' - Exp. SA {exp_sa:.4f} (input saturated to [{value_range[0], value_range[1]}])')
-                    print_fn(f' - Err. SA {err_sa:.4f} (input saturated to [{value_range[0], value_range[1]}])')
+                    print_fn(f' - MSE_sat {mse:.6f} (input saturated)')
+                    print_fn(f' - SNR_sat {snr:.4f} (input saturated)')
+                    print_fn(f' - PSNR_sat {psnr:.4f} (input saturated)')
+                    print_fn(f' - Exp. SA {exp_sa:.4f} (input saturated)')
                     results[name]['snr']= snr
                     results[name]['psnr']= psnr
                     results[name]['mse']= mse
                     results[name]['exp_sa']= exp_sa
-                    results[name]['err_sa']= err_sa
 
                 else:
                     acc= np.nanmean(array_comp==array_orig)
@@ -370,7 +391,7 @@ def video2xarray(input_path, array_id, fmt='mkv', exceptions='raise', x_name='x'
         bands= safe_eval(meta_info['BANDS'])
         coords_dims= list(safe_eval(meta_info['COORDS_DIMS']))
         attrs= safe_eval(meta_info['ATTRS'])
-        value_range= safe_eval(meta_info['RANGE'])
+        value_range= str2np(meta_info['RANGE'])
         normalized= meta_info['NORMALIZED'] in [True, 'True']
         bits= int(meta_info['BITS'])
         ordering= meta_info['CHANNEL_ORDER']

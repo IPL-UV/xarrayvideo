@@ -52,7 +52,7 @@ def sanitize_xarray(x):
 
 def to_netcdf(x, *args, **kwargs):
     x= sanitize_xarray(x)
-    x.to_netcdf(*args, **kwargs, encoding={var: {'zlib': True} for var in x.variables}, engine='netcdf4')
+    x.to_netcdf(*args, **kwargs, encoding={var: {'zlib': True} for var in x.variables})
 
 def gap_fill(x:xr.Dataset, fill_bands:List[str], mask_band:str, fill_nans:bool=True, fill_zeros:bool=True,
              fill_values:Optional[List[int]]=None, new_mask='invalid', coord_names=('time', 'variable', 'x', 'y'),
@@ -143,24 +143,66 @@ def reorder_coords_axis(array, coords_in, coords_out, axis=-1):
     #Move reorder axis to position 0
     return np.swapaxes(np.swapaxes(array, axis, 0)[new_order], axis, 0)
 
-def normalize(array, minmax=(0.,1.), bits=8):
+# def normalize(array, minmax=(0.,1.), bits=8):
+#     '''
+#         If array is not uint8, clip array to `minmax` and rescale to [0, 2**bits].
+#         For bits=8, uint8 is used as output, for bits 9-16, uint16 is used 
+#     '''
+#     assert bits >=8 and bits <=16, 'Only 8 to 16 bits supported'
+#     max_value= 2**bits - 1
+#     if array.dtype != np.uint8:
+#         array= (array - minmax[0]) / (minmax[1] - minmax[0]) * max_value
+#         array[array > max_value]= max_value
+#         array[array < 0]= 0
+#         array[np.isnan(array)]= 0
+#         array= np.round(array).astype(np.uint8 if bits == 8 else np.uint16)
+#     return array
+
+# def denormalize(array, minmax=(0.,1.), bits=8):
+#     '''
+#         Transform to float32, and undo the scaling done in `normalize`
+#     '''
+#     max_value= 2**bits - 1
+#     return array.astype(np.float32) / max_value * (minmax[1] - minmax[0]) + minmax[0]
+
+def normalize(array, minmax, bits=8):
     '''
         If array is not uint8, clip array to `minmax` and rescale to [0, 2**bits].
-        For bits=8, uint8 is used as output, for bits 9-16, uint16 is used 
+        For bits=8, uint8 is used as output, for bits 9-16, uint16 is used.
+        minmax must have shape (B,2), and array must have shape (...,B)
     '''
+    if array.dtype == np.uint8: 
+        return array
+    
     assert bits >=8 and bits <=16, 'Only 8 to 16 bits supported'
     max_value= 2**bits - 1
-    if array.dtype != np.uint8:
-        array= (array - minmax[0]) / (minmax[1] - minmax[0]) * max_value
-        array[array > max_value]= max_value
-        array[array < 0]= 0
-        array[np.isnan(array)]= 0
-        array= np.round(array).astype(np.uint8 if bits == 8 else np.uint16)
-    return array
+    array_bands= []
+    for c in range(array.shape[-1]):
+        array_c= array[...,c]
+        array_c= array_c.astype(np.float32)
+        array_c= (array_c - minmax[c,0]) / (minmax[c,1] - minmax[c,0]) * max_value
+        array_c[array_c > max_value]= max_value
+        array_c[array_c < 0]= 0
+        array_c[np.isnan(array_c)]= 0
+        array_bands.append(array_c)        
+    return np.round(np.stack(array_bands, axis=-1)).astype(np.uint8 if bits == 8 else np.uint16)
 
-def denormalize(array, minmax=(0.,1.), bits=8):
+def denormalize(array, minmax, bits=8):
     '''
         Transform to float32, and undo the scaling done in `normalize`
+        minmax must have shape (B,2), and array must have shape (...,B)
     '''
     max_value= 2**bits - 1
-    return array.astype(np.float32) / max_value * (minmax[1] - minmax[0]) + minmax[0]
+    array_bands= []
+    for c in range(array.shape[-1]):
+        array_c= array[...,c]
+        array_c= array_c.astype(np.float32)
+        array_c= array_c / max_value * (minmax[c,1] - minmax[c,0]) + minmax[c,0]
+        array_bands.append(array_c)     
+    return np.stack(array_bands, axis=-1)
+
+def np2str(array:np.ndarray, decimals:int=7):
+    return str( (np.trunc(array*10**decimals)/(10**decimals)).tolist() )
+
+def str2np(s:str):
+     np.array(safe_eval(s))

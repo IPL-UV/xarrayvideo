@@ -8,7 +8,7 @@ from typing import List, Optional
 import numpy as np
 import matplotlib.pyplot as plt
 
-def plot_simple(img, max_val, factor=3, transpose=None, title=None, figsize=(4,4)):
+def plot_simple(img, max_val, factor=5, transpose=None, title=None, figsize=(4,4)):
     plt.figure(figsize=figsize)
     if transpose is not None:
         plt.imshow(np.minimum(np.transpose(img, transpose)*factor, max_val)/max_val) 

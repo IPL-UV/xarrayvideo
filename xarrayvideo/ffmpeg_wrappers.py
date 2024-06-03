@@ -56,7 +56,7 @@ def _ffmpeg_read(video_path, loglevel='quiet'):
     data= np.frombuffer(process.stdout.read(), np.uint8 if bits==8 else np.uint16)
     assert len(data) == np.prod(output_shape),\
         f'Video {len(data)=} cannot be reshaped into {output_shape=}. '\
-        f'Video data is {len(data)/np.prod(output_shape)}x longer'
+        f'Video data is {len(data)/np.prod(output_shape):.6f}x longer'
     video_data= data.reshape(output_shape)
     
     #Close the ffmpeg process
