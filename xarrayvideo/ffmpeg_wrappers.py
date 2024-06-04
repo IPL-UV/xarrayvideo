@@ -28,7 +28,7 @@ def _ffmpeg_read(video_path, loglevel='quiet'):
     
     planar_out= meta_info['PLANAR'] in [True, 'True']
     bits= int(meta_info['BITS'])
-    channels= len(safe_eval(meta_info['BANDS']))
+    channels= int(meta_info['CHANNELS'])
     num_frames= int(meta_info['FRAMES'])
     
     #Other ways to infer num_frames. 

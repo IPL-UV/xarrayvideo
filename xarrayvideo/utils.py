@@ -6,6 +6,8 @@ from typing import List, Optional
 
 #Others
 import xarray as xr, numpy as np
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 
 #Examples of formats for ffv1
 #yuv420p yuva420p yuva422p yuv444p yuva444p yuv440p yuv422p yuv411p yuv410p bgr0 bgra yuv420p16le 
@@ -14,6 +16,99 @@ import xarray as xr, numpy as np
 #yuva444p9le yuva422p9le yuva420p9le gray16le gray gbrp9le gbrp10le gbrp12le gbrp14le gbrap10le gbrap12le 
 #ya8 gray10le gray12le gbrp16le rgb48le gbrap16le rgba64le gray9le yuv420p14le yuv422p14le yuv444p14le 
 #yuv440p10le yuv440p12le
+
+#Crate a dimensionality reduction wrapper
+class DRWrapper:
+    def __init__(self, n_components=0, params=None, scale=False, **kwargs):
+        '''
+            Standardize and apply PCA by flattening all dimensions except for the last one
+        '''
+        #Attributes
+        self.fitted= False
+        self.bands= None
+        
+        #Initialize classes           
+        if params is None:
+            self.scaler= StandardScaler() if scale else None 
+            self.n_components= n_components
+            self.scale= scale
+            self.dr= PCA(n_components=self.n_components, **kwargs)
+        else:
+            if isinstance(params, str):
+                self.set_params_str(params)
+            else:
+                self.set_params(params)
+            self.n_components= self.dr.n_components
+            self.scale= self.scaler is not None
+    
+    def fit(self, X):
+        self.fitted= True
+        self.bands= X.shape[-1]
+        X_flat= np.reshape(X, (-1, self.bands))
+        X_flat= X_flat[~np.any(np.isnan(X_flat), axis=-1)]
+        if self.scale: X_flat= self.scaler.fit(X_flat)
+        self.dr.fit(X_flat)
+    
+    def fit_transform(self, X):
+        self.fit(X)
+        return self.transform(X)
+    
+    def transform(self, X):
+        assert self.fitted
+        final_shape= list(X.shape)
+        final_shape[-1]= self.n_components
+        X_flat= np.reshape(X, (-1, self.bands))
+        if self.scale: X_flat= self.scaler.transform(X_flat)
+        nans= np.any(np.isnan(X_flat), axis=-1)
+        X_flat[nans]= 0.
+        X_pca_flat= self.dr.transform(X_flat)
+        X_flat[nans]= np.nan
+        return np.reshape(X_pca_flat, final_shape)
+    
+    def inverse_transform(self, Y):
+        assert self.fitted
+        final_shape= list(Y.shape)
+        final_shape[-1]= self.bands
+        Y_flat= np.reshape(Y, (-1, self.n_components))
+        Y_flat= self.dr.inverse_transform(Y_flat)
+        if self.scale: Y_flat= self.scaler.inverse_transform(Y_flat)
+        return np.reshape(Y_flat, final_shape)
+    
+    def get_params(self):
+        assert self.fitted
+        params={}
+        params['scaler']= self.scaler.get_params() if self.scale else None
+        params['dr']= self.dr.get_params()
+        params['dr_matrix']= self.dr.components_
+        params['dr_mean']= self.dr.mean_
+        params['dr_bands']= self.bands
+        return params
+    
+    def set_params(self, params):
+        self.fitted= True
+        self.scaler= StandardScaler(**params['scaler']) if params['scaler'] is not None else None
+        self.dr= PCA(**params['dr'])
+        self.dr.components_= params['dr_matrix']
+        self.dr.mean_= params['dr_mean']
+        self.bands= params['dr_bands']
+        
+    def get_params_str(self):
+        params= self.get_params()
+        params['dr']= str(params['dr'])
+        params['dr_matrix']= np2str(params['dr_matrix'])
+        params['dr_mean']= np2str(params['dr_mean'])
+        params['scaler']= str(params['scaler'])
+        params['dr_bands']= str(params['dr_bands'])
+        return str(params)
+    
+    def set_params_str(self, params_str):
+        params= safe_eval(params_str)
+        params['dr']= safe_eval(params['dr'])
+        params['dr_matrix']= str2np(params['dr_matrix']).astype(np.float32)
+        params['dr_mean']= str2np(params['dr_mean']).astype(np.float32)
+        params['scaler']= safe_eval(params['scaler'])
+        params['dr_bands']= int(params['dr_bands'])
+        self.set_params(params)
 
 def detect_rgb(fmt):
     for ordering in ['rgb', 'rbg', 'gbr', 'grb', 'brg', 'bgr']:
@@ -205,4 +300,4 @@ def np2str(array:np.ndarray, decimals:int=7):
     return str( (np.trunc(array*10**decimals)/(10**decimals)).tolist() )
 
 def str2np(s:str):
-     np.array(safe_eval(s))
+    return np.array(safe_eval(s))
