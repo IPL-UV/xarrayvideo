@@ -49,9 +49,9 @@ def _ffmpeg_read(video_path, loglevel='quiet'):
 
     #Reshape
     if planar_out: 
-        output_shape= [num_frames, channels, height, width]
+        output_shape= [num_frames, channels, width, height]
     else:          
-        output_shape= [num_frames, height, width, channels]
+        output_shape= [num_frames, width, height, channels]
     
     data= np.frombuffer(process.stdout.read(), np.uint8 if bits==8 else np.uint16)
     assert len(data) == np.prod(output_shape),\
@@ -65,7 +65,9 @@ def _ffmpeg_read(video_path, loglevel='quiet'):
     
     #Convert back from planar if needed
     if planar_out:
-        video_data= np.transpose(video_data, (0, 2, 3, 1)) #(t, c, x, y) > (t, x, y, c)
+        video_data= np.transpose(video_data, (0, 3, 2, 1)) #(t, c, y, x) > (t, x, y, c)
+    else:
+        video_data= np.transpose(video_data, (0, 2, 1, 3)) #(t, y, x, c) > (t, x, y, c)
 
     return video_data, meta_info
 
@@ -87,9 +89,9 @@ def _ffmpeg_write(video_path, array, x, y, output_params, planar_in=True,
                 
     #Convert to planar if needed
     if planar_in:
-        array2= np.transpose(array, (0, 3, 1, 2)) #(t, x, y, c) > (t, c, x, y)
+        array2= np.transpose(array, (0, 3, 2, 1)) #(t, x, y, c) > (t, c, y, x)
     else:
-        array2= array
+        array2= np.transpose(array, (0, 2, 1, 3)) #(t, x, y, c) > (t, y, x, c)
 
     #Write the numpy array to the input pipe and close
     for frame in array2:

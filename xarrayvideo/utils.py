@@ -9,6 +9,10 @@ import xarray as xr, numpy as np
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
+#Set global seed
+SEED= 42
+MAX_SAMPLES= 1e9
+
 #Examples of formats for ffv1
 #yuv420p yuva420p yuva422p yuv444p yuva444p yuv440p yuv422p yuv411p yuv410p bgr0 bgra yuv420p16le 
 #yuv422p16le yuv444p16le yuv444p9le yuv422p9le yuv420p9le yuv420p10le yuv422p10le yuv444p10le yuv420p12le 
@@ -17,15 +21,29 @@ from sklearn.preprocessing import StandardScaler
 #ya8 gray10le gray12le gbrp16le rgb48le gbrap16le rgba64le gray9le yuv420p14le yuv422p14le yuv444p14le 
 #yuv440p10le yuv440p12le
 
-#Crate a dimensionality reduction wrapper
+def sample(*arrays, max_samples=MAX_SAMPLES, seed=SEED, axis=0):
+    '''
+        Randomly sample the same slices for all arrays over a given axis
+    '''
+    if arrays[0].size > max_samples:
+        assert axis==0, 'TODO: if not in axis 0, do swapaxes to 0 before and after'
+        rng= np.random.default_rng(seed)
+        N= int(max_samples / arrays[0].size * arrays[0].shape[0])
+        idx= rng.choice(arrays[0].shape[0], size=N, replace=False)
+        return [a[idx] for a in arrays]
+    else:
+        return arrays
+
 class DRWrapper:
-    def __init__(self, n_components=0, params=None, scale=False, **kwargs):
+    def __init__(self, n_components=0, params=None, scale=False, max_train=1e6, **kwargs):
         '''
             Standardize and apply PCA by flattening all dimensions except for the last one
         '''
         #Attributes
         self.fitted= False
         self.bands= None
+        self.max_train= max_train
+        self.rng= np.random.default_rng(SEED)
         
         #Initialize classes           
         if params is None:
@@ -46,6 +64,8 @@ class DRWrapper:
         self.bands= X.shape[-1]
         X_flat= np.reshape(X, (-1, self.bands))
         X_flat= X_flat[~np.any(np.isnan(X_flat), axis=-1)]
+        if len(X_flat) > self.max_train:
+            X_flat= self.rng.choice(X_flat, size=int(self.max_train), replace=False)
         if self.scale: X_flat= self.scaler.fit(X_flat)
         self.dr.fit(X_flat)
     
@@ -223,20 +243,24 @@ def gap_fill(x:xr.Dataset, fill_bands:List[str], mask_band:str, fill_nans:bool=T
         
 def reorder_coords(array, coords_in, coords_out):
     '''
-        Permutes and reorders an array from coords_in into coords_out
+        Permutes and reorders all axis of an array from coords_in into coords_out
         E.g.: coords_in= ('y', 'x', 't'), coords_out= ('t', 'x', 'y')
     '''
-    new_order= [coords_out.index(i) for i in coords_in]
+    new_order= [coords_in.index(i) for i in coords_out]
     return np.transpose(array, new_order)
 
 def reorder_coords_axis(array, coords_in, coords_out, axis=-1):
     '''
-        Permutes and reorders an axis of an array from coords_in into coords_out
-        E.g.: coords_in= ('y', 'x', 't'), coords_out= ('t', 'x', 'y')
+        Permutes and reorders the dimensions within a single axis of an array 
+        from coords_in into coords_out
+        E.g.: axis=-1, coords_in= ('y', 'x', 't'), coords_out= ('t', 'x', 'y')
     '''
-    new_order= [coords_out.index(i) for i in coords_in]
-    #Move reorder axis to position 0
+    new_order= [coords_in.index(i) for i in coords_out]
+    #Move reorder axis to position 0, reorder, and then move it back to where it was
     return np.swapaxes(np.swapaxes(array, axis, 0)[new_order], axis, 0)
+
+def is_float(array):
+    return np.issubdtype(array.dtype, np.floating)
 
 # def normalize(array, minmax=(0.,1.), bits=8):
 #     '''

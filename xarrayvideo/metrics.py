@@ -4,6 +4,9 @@ from pathlib import Path
 import ast, sys, os, yaml, time, warnings
 from typing import List, Optional
 
+#Our libs
+from .utils import sample
+
 #Others
 import numpy as np
 from skimage.metrics import structural_similarity as ssim
@@ -33,12 +36,14 @@ def SSIM(original, compressed, channel_dim, max_value):
     
     return ssim, 10*np.log10(ssim)
 
-
 def SA(original, compressed, channel_dim):
     '''
         Computes spectral angle according to:
         https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=6080751
-    '''
+    '''    
+    #Sample
+    original, compressed= sample(original, compressed)
+    
     #To float32
     o, c= original.astype(np.float32), compressed.astype(np.float32)
     
@@ -74,6 +79,9 @@ def SNR(original, compressed, max_value):
     o, c= original.astype(np.float32), compressed.astype(np.float32)
     isnan= np.isnan(o) | np.isnan(c) 
     o, c= o[~isnan], c[~isnan]
+    
+    #Sample
+    o, c= sample(o, c)
     
     #Compute metrics
     mse= np.mean((o-c)**2)
