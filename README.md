@@ -42,11 +42,16 @@ Here is a plot with some very early results:
 - Planar / non-planar input formats (depends on video codec)
 - 8 / 10 / 12 / 16 bits (depends on video codec)
 - Lossy & lossless encoding
-- 1 / 3 / 4 channels
-  - 1 channel: great lossless compression with `ffv1` (8,10,12,16 bits), bad lossy compression with vp9 (8,10,12 bits) **(WIP: should work better)**
-  - 3 channels: great lossless compression with `vp9, lossless 1` (8,10,12 bits), great lossy comporession with `x264` (8,10 bits) or `x265` (8,10,12 bits) 
-  - 4 channels: theoretically supported with `vp9` for both lossy and lossless, but currently not working **(WIP)**
-- KLT / PCA transform **(WIP)**
+- Numbers of channels
+  - 1 channel: great lossless compression with `ffv1` (8,10,12,16 bits), lossy compression supported with channel dupplication (see N channels)
+  - 3 channels: great lossless compression with `vp9, lossless 1` (8,10,12 bits), great lossy comporession with `x264` (8,10 bits,. slightly quicker compression times) or `x265` (8,10,12 bits, better compression, more options) 
+  - N channels: channels are split into N//3 videos automatically, with the last video containing the last channel repeated 1/2 times if N is not a multiple of 3
+- KLT / PCA transform: You can specify a number of principal components (ideally a multiple of 3), and PCA is applied over the channel dimension. Videos are encoded in sets of 3 channels
+
+## Datasets used for testing (WIP):
+ - DeepExtremesCubes
+ - ERA5
+ - Cesar's cube
 
 ## Installation
 

@@ -1,8 +1,8 @@
 out/
+since_2022-07-01_2022-07-01_1959-2023_01_10-wb13-6h-1440x721_with_derived_variables/
 deepextremes_images/
 *.zarr
 *.pkl
-*.png
 !examples
 
 # Byte-compiled / optimized / DLL files
