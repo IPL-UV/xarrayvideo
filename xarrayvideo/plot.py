@@ -22,7 +22,7 @@ def plot_simple(img, max_val, factor=5, transpose=None, title=None, figsize=(4,4
 def plot_image(x, band_names, mask_name='cloudmask_en', t_name='time', 
                txy_coords=('time', 'variable', 'y', 'x'),
                save_name='default.jpg', cmaps=[None], show=True, plot_idx= [[0,1,2]], 
-               limits=[(0,0.3)], ylabels=['RGB']):
+               limits=[(0,0.3)], ylabels=['RGB'], stack_every=73):
     
     from IPython.display import display, Image, HTML
     from txyvis import plot_maps
@@ -56,7 +56,7 @@ def plot_image(x, band_names, mask_name='cloudmask_en', t_name='time',
                                   'labels':'grid', 'font':'OpenSans_Condensed-Regular.ttf'},
             plot_mask_channel=None, matplotlib_backend_kwargs={'text_size':20},
             figsize=(27.5,10),
-            stack_every=73, #Stack every year (approx.) 73*5=365
+            stack_every=stack_every, #Stack every year (approx.) 73*5=365
                   )
     
     Path(save_name).parent.mkdir(exist_ok=True, parents=True)

@@ -49,9 +49,9 @@ def _ffmpeg_read(video_path, loglevel='quiet'):
 
     #Reshape
     if planar_out: 
-        output_shape= [num_frames, channels, width, height]
+        output_shape= [num_frames, channels, height, width]
     else:          
-        output_shape= [num_frames, width, height, channels]
+        output_shape= [num_frames, height, width, channels]
     
     data= np.frombuffer(process.stdout.read(), np.uint8 if bits==8 else np.uint16)
     assert len(data) == np.prod(output_shape),\

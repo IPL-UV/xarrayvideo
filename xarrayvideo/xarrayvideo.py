@@ -93,6 +93,15 @@ def get_pix_fmt(params, channels, bits):
         raise AssertionError('Only codecs [libx264, libx265, ffv1, vp9, prores_ks] are implemented')
         
     return input_pix_fmt, req_pix_fmt, compression
+
+def get_param(possibly_list, position):
+    if isinstance(possibly_list, list):
+        if position < len(possibly_list): 
+            return possibly_list[position]
+        else: 
+            return possibly_list[-1]
+    else:
+        return possibly_list
         
 #Forward function
 def xarray2video(x, array_id, conversion_rules, compute_stats=False,
@@ -237,9 +246,8 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
                 #Write with ffmpeg
                 final_params['pix_fmt']= req_pix_fmt
                 final_params['r']= 30
-                final_params['crf']= params['crf'] if isinstance(params['crf'], (int, float, np.number))\
-                                                   else params['crf'][i] if i < len(params['crf']) \
-                                                   else params['crf'][-1]
+                for k in params.keys(): #If the param is a list, index it with i
+                    final_params[k]= get_param(params[k], i)
                 array_in= array[...,i*3:(i+1)*3]
                 metadata['ORDER']= i+1
                 _ffmpeg_write(str(output_path_video), array_in, x_len, y_len, final_params, planar_in=planar_in,
