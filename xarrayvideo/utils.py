@@ -134,8 +134,7 @@ def detect_rgb(fmt):
     for ordering in ['rgb', 'rbg', 'gbr', 'grb', 'brg', 'bgr']:
         if ordering in fmt: 
             return ordering
-        else: 
-            return None
+    return None
 
 def detect_planar(fmt):
     return 'p' in fmt
@@ -255,9 +254,12 @@ def reorder_coords_axis(array, coords_in, coords_out, axis=-1):
         from coords_in into coords_out
         E.g.: axis=-1, coords_in= ('y', 'x', 't'), coords_out= ('t', 'x', 'y')
     '''
-    new_order= [coords_in.index(i) for i in coords_out]
-    #Move reorder axis to position 0, reorder, and then move it back to where it was
-    return np.swapaxes(np.swapaxes(array, axis, 0)[new_order], axis, 0)
+    if coords_in == coords_out: 
+        return array
+    else:
+        new_order= [coords_in.index(i) for i in coords_out]
+        #Move reorder axis to position 0, reorder, and then move it back to where it was
+        return np.swapaxes(np.swapaxes(array, axis, 0)[new_order], axis, 0)
 
 def is_float(array):
     return np.issubdtype(array.dtype, np.floating)

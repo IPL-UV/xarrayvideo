@@ -177,13 +177,21 @@ all: 216.56Mb -> ['2.10', '1.95', '1.66']Mb (2.64% of original size, 0.8432 bppp
  
  
  
- wind_speed: 14622.43Mb -> ['35.30', '44.08', '57.67', '86.65', '67.06']Mb (1.99% of original size, 0.6363 bpppb) in 191.85s
+wind_speed: 14622.43Mb -> ['35.30', '44.08', '57.67', '86.65', '67.06']Mb (1.99% of original size, 0.6363 bpppb) in 191.85s
  - params={'c:v': 'libx265', 'preset': 'medium', 'crf': [0], 'x265-params': 'qpmin=0:qpmax=0.01'}
  - Decompression time 12.13s
  - MSE_sat 0.019001 (input saturated)
  - SNR_sat 42.8042 (input saturated)
  - PSNR_sat 58.7520 (input saturated)
  - Exp. SA 0.0122 (input saturated)
+ 
+wind_speed: 14622.43Mb -> ['45.92', '56.85', '74.96', '114.02', '65.12']Mb (2.44% of original size, 0.7810 bpppb) in 209.95s
+ - params={'c:v': 'libx265', 'preset': 'medium', 'crf': [0], 'x265-params': 'qpmin=0:qpmax=0.001:psy-rd=0:psy-rdoq=0'}
+ - Decompression time 12.67s
+ - MSE_sat 0.011255 (input saturated)
+ - SNR_sat 45.0786 (input saturated)
+ - PSNR_sat 61.0263 (input saturated)
+ - Exp. SA 0.0097 (input saturated)
 
 wind_u: 14622.43Mb -> ['27.25', '32.30', '38.76', '53.21', '42.01']Mb (1.32% of original size, 0.4235 bpppb) in 166.98s
  - params={'c:v': 'libx265', 'preset': 'medium', 'crf': [0], 'x265-params': 'qpmin=0:qpmax=0.01'}

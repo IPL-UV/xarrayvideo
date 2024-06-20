@@ -121,12 +121,15 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
         #Choose defaults if not all parameters are provided
         bits= 8 #Best support, not best choice for technical images
         n_components= 'all'
+        value_range= None #By default, compute it as [min, max] for every variable
         params= {
             'c:v': 'libx264',  #[libx264, libx265, vp9, ffv1]
             'preset': 'medium',  #Preset for quality/encoding speed tradeoff: quick, medium, slow (better)
             'crf': 3, #14 default, 11 for higher quality and size
             }
-        if len(config) == 5:
+        if len(config) == 6:
+            bands, coord_names, n_components, params, bits, value_range= config
+        elif len(config) == 5:
             bands, coord_names, n_components, params, bits= config
         elif len(config) == 4:
             bands, coord_names, n_components, params= config
@@ -134,7 +137,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
         elif len(config) == 3:
             bands, coord_names, n_components= config
         else:
-            raise AssertionError(f'Params: {config} should be: bands, coord_names, [n_components], [params], [bits]')
+            raise AssertionError(f'Params: {config} should be: bands, coord_names, [n_components], [params], [bits], [min, max]')
             
         try:
             #Array -> uint8 or uint16, shape: (t, x, y, c)
@@ -190,9 +193,11 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
                 
             #Compute minimum and maximum values for every band
             video_files= len(bands) // 3
-            value_range= np.stack([ np.nanmin(array, axis=tuple(range(array.ndim - 1))), 
-                                    np.nanmax(array, axis=tuple(range(array.ndim - 1))) ], axis=1)
-            # value_range= np.array([[ np.nanmin(array), np.nanmax(array) ]]*len(bands))
+            if value_range is None:
+                value_range= np.stack([ np.nanmin(array, axis=tuple(range(array.ndim - 1))), 
+                                        np.nanmax(array, axis=tuple(range(array.ndim - 1))) ], axis=1)
+            else: #Or use the provided range
+                value_range= np.array([value_range]*len(bands))
         
             #Normalize
             array= normalize(array, minmax=value_range, bits=bits)
@@ -208,13 +213,11 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
                 
             #Convert rgb <> gbr, etc.
             #This is only relevant for visualizing the output videos
+            ordering= 'rgb'
             if not 'rgb' in input_pix_fmt:
                 ordering= detect_rgb(input_pix_fmt)
-                if ordering is not None: array= reorder_coords_axis(array, list('rgb'), list(ordering), axis=-1)
-                else:                    ordering= 'rgb'
-            else:
-                ordering= None
-                
+                if ordering is None: ordering= 'rgb'
+
             #Add custom metainfo used by video2xarray
             metadata= {}
             metadata['VERSION']= '0.1'
@@ -249,6 +252,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
                 for k in params.keys(): #If the param is a list, index it with i
                     final_params[k]= get_param(params[k], i)
                 array_in= array[...,i*3:(i+1)*3]
+                array_in= reorder_coords_axis(array_in, list('rgb'), list(ordering), axis=-1)
                 metadata['ORDER']= i+1
                 _ffmpeg_write(str(output_path_video), array_in, x_len, y_len, final_params, planar_in=planar_in,
                               loglevel=loglevel, metadata=metadata, input_pix_fmt=input_pix_fmt)
@@ -285,6 +289,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
                 #Read
                 t0= time.time()
                 array_comp_list= [_ffmpeg_read(v)[0] for v in results[name]['path']]
+                array_comp_list= [reorder_coords_axis(a, list(ordering), list('rgb'), axis=-1) for a in array_comp_list]
                 array_comp= np.concatenate(array_comp_list, axis=-1)
                 
                 #Undo transformations
@@ -374,7 +379,8 @@ def video2xarray(input_path, array_id, fmt='mkv', exceptions='raise', x_name='x'
     #Read videos
     arrays, metas= defaultdict(list), defaultdict(list)
     for video_path in (path / array_id).glob(f'*.{fmt}'):
-        array, meta_info= _ffmpeg_read(video_path)
+        array, meta_info= _ffmpeg_read(video_path)  
+        array= reorder_coords_axis(array, list(meta_info['CHANNEL_ORDER']), list('rgb'), axis=-1)
         bands_key= '_'.join(safe_eval(meta_info['BANDS'])) #E.g.: B01_B02_B03
         arrays[bands_key].append(array)
         metas[bands_key].append(meta_info)       
@@ -401,11 +407,10 @@ def video2xarray(input_path, array_id, fmt='mkv', exceptions='raise', x_name='x'
         value_range= str2np(meta_info['RANGE'])
         normalized= meta_info['NORMALIZED'] in [True, 'True']
         bits= int(meta_info['BITS'])
-        ordering= meta_info['CHANNEL_ORDER']
         dr_params_str= meta_info['PCA_PARAMS']
         use_pca= dr_params_str not in ['None', None]
 
-        #TODO: I'm not sure why, but saving the video transposes x and y
+        #TODO: I'm not yet sure why, but saving the video transposes x and y
         x_pos, y_pos= coords_dims.index(x_name), coords_dims.index(y_name)
         coords_dims[x_pos], coords_dims[y_pos]= y_name, x_name
 
@@ -417,11 +422,6 @@ def video2xarray(input_path, array_id, fmt='mkv', exceptions='raise', x_name='x'
         if use_pca: 
             DR= DRWrapper(params=dr_params_str)
             array= DR.inverse_transform(array)
-
-        #To rgb if needed
-        if ordering != 'rgb':
-            a= 'a' if len(bands) == 4 else ''
-            array= reorder_coords_axis(array, list(ordering+a), list('rgb'+a), axis=-1)
 
         #Go over bands and set them into the xarray
         for i, (band, attr) in enumerate(zip(bands, attrs.values())):
