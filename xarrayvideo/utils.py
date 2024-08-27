@@ -288,7 +288,7 @@ def is_float(array):
 
 def normalize(array, minmax, bits=8):
     '''
-        If array is not uint8, clip array to `minmax` and rescale to [0, 2**bits].
+        If array is not uint8, clip array to `minmax` and rescale to [0, 2**bits-1].
         For bits=8, uint8 is used as output, for bits 9-16, uint16 is used.
         minmax must have shape (B,2), and array must have shape (...,B)
     '''

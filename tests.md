@@ -1,3 +1,97 @@
+all: 216.56Mb -> ['4.62', '1.57']Mb (2.86% of original size, 0.9148 bpppb) in 20.56s
+ - params={'c:v': 'libx265', 'preset': 'medium', 'crf': [50], 'x265-params': ['qpmin=0:qpmax=0.1:psy-rd=0:psy-rdoq=0', 'qpmax=10:psy-rd=0:psy-rdoq=0']}
+ - Decompression time 1.06s
+ - MSE_sat 0.000012 (input saturated)
+ - SNR_sat 42.0605 (input saturated)
+ - PSNR_sat 59.5316 (input saturated)
+ - Exp. SA 0.0092 (input saturated)
+ 
+ all: 216.56Mb -> ['4.62', '3.18']Mb (3.60% of original size, 1.1536 bpppb) in 24.13s
+ - params={'c:v': 'libx265', 'preset': 'medium', 'crf': [50], 'x265-params': ['qpmin=0:qpmax=0.1:psy-rd=0:psy-rdoq=0', 'qpmin=0:qpmax=1:psy-rd=0:psy-rdoq=0', 'qpmin=0:qpmax=10:psy-rd=0:psy-rdoq=0']}
+ - Decompression time 1.16s
+ - MSE_sat 0.000011 (input saturated)
+ - SNR_sat 42.4629 (input saturated)
+ - PSNR_sat 59.9340 (input saturated)
+ - Exp. SA 0.0083 (input saturated)
+
+all2: 216.56Mb -> ['3.27', '3.00', '1.94']Mb (3.79% of original size, 1.2141 bpppb) in 24.32s
+ - params={'c:v': 'libx265', 'preset': 'medium', 'crf': [50], 'x265-params': ['qpmin=0:qpmax=1:psy-rd=0:psy-rdoq=0', 'qpmin=0:qpmax=1:psy-rd=0:psy-rdoq=0qpmin=0:qpmax=1:psy-rd=0:psy-rdoq=0']}
+ - Decompression time 0.73s
+ - MSE_sat 0.000012 (input saturated)
+ - SNR_sat 41.9893 (input saturated)
+ - PSNR_sat 54.0777 (input saturated)
+ - Exp. SA 0.0096 (input saturated)
+
+all: 216.56Mb -> ['4.62', '1.17', '0.61']Mb (2.95% of original size, 0.9452 bpppb) in 23.01s
+ - params={'c:v': 'libx265', 'preset': 'medium', 'crf': [50], 'x265-params': ['qpmin=0:qpmax=1:psy-rd=0:psy-rdoq=0', 'qpmin=0:qpmax=6:psy-rd=0:psy-rdoq=0qpmin=0:qpmax=12:psy-rd=0:psy-rdoq=0']}
+ - Decompression time 1.25s
+ - MSE_sat 0.000010 (input saturated)
+ - SNR_sat 42.7201 (input saturated)
+ - PSNR_sat 60.1912 (input saturated)
+ - Exp. SA 0.0088 (input saturated)
+
+all: 216.56Mb -> ['4.55', '1.17', '0.61']Mb (2.92% of original size, 0.9355 bpppb) in 23.05s
+ - params={'c:v': 'libx265', 'preset': 'medium', 'crf': [50], 'x265-params': ['qpmin=0:qpmax=2:psy-rd=0:psy-rdoq=0', 'qpmin=0:qpmax=6:psy-rd=0:psy-rdoq=0qpmin=0:qpmax=12:psy-rd=0:psy-rdoq=0']}
+ - Decompression time 1.26s
+ - MSE_sat 0.000010 (input saturated)
+ - SNR_sat 42.6150 (input saturated)
+ - PSNR_sat 60.0861 (input saturated)
+ - Exp. SA 0.0088 (input saturated)
+
+all: 216.56Mb -> ['3.56', '2.58', '1.26']Mb (3.42% of original size, 1.0930 bpppb) in 27.34s
+ - params={'c:v': 'libx265', 'preset': 'medium', 'crf': [50], 'x265-params': ['qpmin=0:qpmax=6:psy-rd=0:psy-rdoq=0', 'qpmin=0:qpmax=6:psy-rd=0:psy-rdoq=0qpmin=0:qpmax=6:psy-rd=0:psy-rdoq=0']}
+ - Decompression time 1.25s
+ - MSE_sat 0.000014 (input saturated)
+ - SNR_sat 41.2683 (input saturated)
+ - PSNR_sat 58.7394 (input saturated)
+ - Exp. SA 0.0083 (input saturated)
+
+all: 216.56Mb -> ['4.14', '2.02', '1.02']Mb (3.32% of original size, 1.0608 bpppb) in 26.36s
+ - params={'c:v': 'libx265', 'preset': 'medium', 'crf': [50], 'x265-params': ['qpmin=0:qpmax=4:psy-rd=0:psy-rdoq=0', 'qpmin=0:qpmax=6:psy-rd=0:psy-rdoq=0qpmin=0:qpmax=8:psy-rd=0:psy-rdoq=0']}
+ - Decompression time 1.28s
+ - MSE_sat 0.000011 (input saturated)
+ - SNR_sat 42.3502 (input saturated)
+ - PSNR_sat 59.8213 (input saturated)
+ - Exp. SA 0.0081 (input saturated)
+
+all: 216.56Mb -> ['3.86', '1.93', '0.99']Mb (3.13% of original size, 1.0003 bpppb) in 25.31s
+ - params={'c:v': 'libx265', 'preset': 'medium', 'crf': [0], 'x265-params': ['qpmin=0:qpmax=5:psy-rd=0:psy-rdoq=0', 'qpmin=0:qpmax=10:psy-rd=0:psy-rdoq=0qpmin=0:qpmax=20:psy-rd=0:psy-rdoq=0']}
+ - Decompression time 1.14s
+ - MSE_sat 0.000013 (input saturated)
+ - SNR_sat 41.7052 (input saturated)
+ - PSNR_sat 59.1763 (input saturated)
+ - Exp. SA 0.0085 (input saturated)
+ 
+all: 216.56Mb -> ['4.15', '1.17', '0.61']Mb (2.74% of original size, 0.8756 bpppb) in 22.42s
+ - params={'c:v': 'libx265', 'preset': 'medium', 'crf': [50], 'x265-params': ['qpmin=0:qpmax=4:psy-rd=0:psy-rdoq=0', 'qpmin=0:qpmax=8:psy-rd=0:psy-rdoq=0qpmin=0:qpmax=12:psy-rd=0:psy-rdoq=0']}
+ - Decompression time 1.21s
+ - MSE_sat 0.000012 (input saturated)
+ - SNR_sat 41.8994 (input saturated)
+ - PSNR_sat 59.3705 (input saturated)
+ - Exp. SA 0.0091 (input saturated)
+ 
+ all: 216.56Mb -> ['4.63', '0.65', '0.35']Mb (2.59% of original size, 0.8301 bpppb) in 20.15s
+ - params={'c:v': 'libx265', 'preset': 'medium', 'crf': [50], 'x265-params': ['qpmin=0:qpmax=0.2:psy-rd=0:psy-rdoq=0', 'qpmin=0:qpmax=4:psy-rd=0:psy-rdoq=0qpmin=0:qpmax=16:psy-rd=0:psy-rdoq=0']}
+ - Decompression time 1.08s
+ - MSE_sat 0.000012 (input saturated)
+ - SNR_sat 41.9540 (input saturated)
+ - PSNR_sat 59.4251 (input saturated)
+ - Exp. SA 0.0099 (input saturated)
+
+all: 216.56Mb -> ['3.86', '0.30', '0.18']Mb (2.00% of original size, 0.6410 bpppb) in 16.71s
+ - params={'c:v': 'libx265', 'preset': 'medium', 'crf': [50], 'x265-params': ['qpmin=0:qpmax=5:psy-rd=0:psy-rdoq=0', 'qpmin=0:qpmax=10:psy-rd=0:psy-rdoq=0qpmin=0:qpmax=20:psy-rd=0:psy-rdoq=0']}
+ - Decompression time 1.15s
+ - MSE_sat 0.000018 (input saturated)
+ - SNR_sat 40.0357 (input saturated)
+ - PSNR_sat 57.5068 (input saturated)
+ - Exp. SA 0.0115 (input saturated)
+----------------
+
+
+
+
+
+
 rgb: 92.81Mb -> ['2.36']Mb (2.54% of original size, 0.8132 bpppb) in 7.35s
  - params={'c:v': 'libx265', 'preset': 'medium', 'crf': [0], 'x265-params': 'qpmin=0:qpmax=1'}
  - Decompression time 0.24s

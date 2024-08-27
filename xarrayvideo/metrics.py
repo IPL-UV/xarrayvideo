@@ -5,36 +5,38 @@ import ast, sys, os, yaml, time, warnings
 from typing import List, Optional
 
 #Our libs
-from .utils import sample
+from .utils import sample, SEED
 
 #Others
 import numpy as np
-from skimage.metrics import structural_similarity as ssim
 
-def SSIM(original, compressed, channel_dim, max_value):
+def SM_SSIM(original, compressed, channel_axis=-1, data_range=1.0, kernel_size=7, levels=1,
+            **kwargs):
     '''
-         Computes SSIM
+         Compute MultiScaleSSIM, Multi-scale Structural Similarity Index Measure.
+         This metric is is a generalization of Structural Similarity Index Measure 
+         by incorporating image details at different resolution scores.
+         https://lightning.ai/docs/torchmetrics/stable/image/multi_scale_structural_similarity.html
     '''
-    #To float32
-    o, c= original.astype(np.float32), compressed.astype(np.float32)
+    from torchmetrics.functional.image import multiscale_structural_similarity_index_measure as smssim
+    from torchmetrics.functional.image import structural_similarity_index_measure as ssim
+    import torch
     
-    #Put channel_dim as first dimension (arbitrary, just for consensus)
-    #And flatten the rest of the dimensions
-    #Final shape: (c, -1)
-    o= np.reshape(np.swapaxes(o, channel_dim, 0), (o.shape[channel_dim], -1))
-    c= np.reshape(np.swapaxes(c, channel_dim, 0), (c.shape[channel_dim], -1))
+    #torchmetrics is expecting (batch, channel, x, y). We will use t for the batch dimension
+    #E.g.: txyc -> tcxy
+    co= torch.from_numpy(np.swapaxes(compressed.astype(np.float32), 1, channel_axis))
+    o= torch.from_numpy(np.swapaxes(original.astype(np.float32), 1, channel_axis))
     
-    #Compute constants
-    c1, c2= max_value**2/10**4, 9*max_value**2/10**4
-    
-    #Compute ssim
-    mu_o, mu_c= o.mean(axis=1), c.mean(axis=1)
-    sigma_o, sigma_c= np.var(o, axis=1), np.var(c, axis=1)
-    sigma_oc= np.cov(o,c)
-    ssim= 1 - (2*mu_o*mu_c + c1) * (2*sigma_oc + c2)/\
-              ((mu_o**2 + mu_c**2 + c1) * (sigma_o + sigma_c + c2) )
-    
-    return ssim, 10*np.log10(ssim)
+    #Using smssim with levels=1 should be equivalent to using ssim, but it is not, so we use both
+    if levels>1:
+        #Choose betas, depending on levels
+        betas= (0.0448, 0.2856, 0.3001, 0.2363, 0.1333)[:levels]
+        res= smssim(co, o, kernel_size=kernel_size, reduction='none', betas=betas, **kwargs)
+    else:
+        res= ssim(co, o, kernel_size=kernel_size, reduction='none', **kwargs)
+     
+    #Since there might be nans in some timesteps, lets apply the reduction later
+    return np.nanmean(res.numpy())
 
 def SA(original, compressed, channel_dim):
     '''

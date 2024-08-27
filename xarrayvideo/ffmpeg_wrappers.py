@@ -40,8 +40,7 @@ def _ffmpeg_read(video_path, loglevel='quiet'):
     # num_frames= int(seconds * fr)
 
     #Read the video frames into a numpy array
-    process = (
-        ffmpeg
+    process = ( ffmpeg
         .input(video_path)
         .output('pipe:', format='rawvideo', pix_fmt=output_pix_fmt, loglevel=loglevel)
         .run_async(pipe_stdout=True)
@@ -82,10 +81,10 @@ def _ffmpeg_write(video_path, array, x, y, output_params, planar_in=True,
     if metadata != {}:
         params['metadata']= f'XARRAY={metadata}'
     process= ( ffmpeg
-                    .output(input_pipe, video_path, loglevel=loglevel, **params)
-                    .overwrite_output()
-                    .run_async(pipe_stdin=True, overwrite_output=True)
-             )
+        .output(input_pipe, video_path, loglevel=loglevel, **params)
+        .overwrite_output()
+        .run_async(pipe_stdin=True, overwrite_output=True)
+     )
                 
     #Convert to planar if needed
     if planar_in:
