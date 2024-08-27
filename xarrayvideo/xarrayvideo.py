@@ -72,7 +72,7 @@ def get_pix_fmt(params, channels, bits):
             raise AssertionError(f'For {params["c:v"]=}, {bits=} not supported')
     elif params['c:v'] in ['ffv1']: #Lossless
         #For ffv1: many options supported
-        req_pix_fmt= {1:'gray', 3:'yuv444p', 4:'yuva444p'}[channels] #Video
+        req_pix_fmt= {1:'gray', 3:'bgr0', 4:'bgra'}[channels] #Video
         if bits == 8:
             input_pix_fmt= {1:'gray', 3:'gbrp', 4:'bgra'}[channels] #Input
         elif bits in [10,12,16]: #gbrp supports more n of bits, but gray and gbrap do not
