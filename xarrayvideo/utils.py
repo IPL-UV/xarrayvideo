@@ -261,8 +261,13 @@ def reorder_coords_axis(array, coords_in, coords_out, axis=-1):
         #Move reorder axis to position 0, reorder, and then move it back to where it was
         return np.swapaxes(np.swapaxes(array, axis, 0)[new_order], axis, 0)
 
-def is_float(array):
-    return np.issubdtype(array.dtype, np.floating)
+def is_float(array=None, dtype=None):
+    if array is not None:
+        return np.issubdtype(array.dtype, np.floating)
+    elif dtype is not None:
+        return np.issubdtype(dtype, np.floating)
+    else:
+        raise RuntimeError('Either `array` or `dtype` must be provided')
 
 # def normalize(array, minmax=(0.,1.), bits=8):
 #     '''

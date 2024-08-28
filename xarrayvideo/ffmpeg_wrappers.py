@@ -15,6 +15,9 @@ def _ffmpeg_read(video_path, loglevel='quiet'):
     probe= ffmpeg.probe(video_path)
     video_info= next(stream for stream in probe['streams'] if stream['codec_type'] == 'video')
     meta_info= safe_eval(probe['format']['tags']['XARRAY']) #Custom info that we have stored
+    
+    # meta_info= yaml.safe_load(open(metadata_path))
+    # meta_info= safe_eval(open(metadata_path).read())
 
     #Extract video parameters
     width= int(video_info['width'])
@@ -53,6 +56,7 @@ def _ffmpeg_read(video_path, loglevel='quiet'):
         output_shape= [num_frames, height, width, channels]
     
     data= np.frombuffer(process.stdout.read(), np.uint8 if bits==8 else np.uint16)
+    #print(f'{video_path} -> {data.mean()}, {data.max()}')
     assert len(data) == np.prod(output_shape),\
         f'Video {len(data)=} cannot be reshaped into {output_shape=}. '\
         f'Video data is {len(data)/np.prod(output_shape):.6f}x longer'
@@ -75,7 +79,6 @@ def _ffmpeg_write(video_path, array, x, y, output_params, planar_in=True,
     #Define the input pipe
     input_pipe= ffmpeg.input('pipe:', format='rawvideo', pix_fmt=input_pix_fmt, 
                               s=f'{x}x{y}', framerate=30)
-
     #Write the numpy array to the input pipe and encode it to the output video file
     params= {**output_params} #Make copy
     if metadata != {}:
@@ -85,6 +88,8 @@ def _ffmpeg_write(video_path, array, x, y, output_params, planar_in=True,
         .overwrite_output()
         .run_async(pipe_stdin=True, overwrite_output=True)
      )
+    #yaml.dump(metadata, open(metadata_path, 'w'))
+    # with open(metadata_path, 'w') as f: f.write(metadata)
                 
     #Convert to planar if needed
     if planar_in:

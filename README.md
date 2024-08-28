@@ -57,16 +57,19 @@ Here is a plot with some very early results:
 
 ```{bash}
 #Install base requirements
-pip install xarray numpy ffmpeg scikit-image scikit-learn pyyaml zarr netcdf4 ffmpeg-python
+#Refer to https://gdal.org/en/latest/download.html for problems with gdal
+pip install xarray numpy ffmpeg scikit-image scikit-learn pyyaml zarr netcdf4 ffmpeg-python gdal gcsfs
+#mamba install xarray numpy ffmpeg scikit-image scikit-learn pyyaml zarr netcdf4 ffmpeg-python gcsfs 
+#mamba install -c gdal-master gdal
 
-#Requiremetns for temporal alignment
+#[Optional] Requiremetns for temporal alignment of video slices
 pip install satalign
 
-#Install requierements for plotting (optional, but `plot_image` calls will fail)
+#[Optional] Requierements for plotting (optional, but `plot_image` calls will fail)
 pip install ipython opencv-python
 pip install git+https://github.com/OscarPellicer/txyvis.git
 
-#Install repo
+#Download repo
 cd ~
 git clone https://github.com/OscarPellicer/xarrayvideo.git
 cd xarrayvideo

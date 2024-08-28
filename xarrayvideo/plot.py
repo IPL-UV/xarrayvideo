@@ -8,15 +8,18 @@ from typing import List, Optional
 import numpy as np
 import matplotlib.pyplot as plt
 
-def plot_simple(img, max_val, factor=5, transpose=None, title=None, figsize=(4,4)):
-    plt.figure(figsize=figsize)
+def plot_pair(img1, img2, max_val, factor=5, transpose=None, 
+              titles=['Original', 'Compressed'], figsize=(8,4)):
+    f, axes= plt.subplots(1,2,figsize=figsize)
     if transpose is not None:
-        plt.imshow(np.minimum(np.transpose(img, transpose)*factor, max_val)/max_val) 
+        for i, img in enumerate([img1, img2]):
+            axes[i].imshow(np.minimum(np.transpose(img, transpose)*factor, max_val)/max_val) 
     else:
-        plt.imshow(np.minimum(img*factor, max_val)/max_val)
+        for i, img in enumerate([img1, img2]):
+            axes[i].imshow(np.minimum(img*factor, max_val)/max_val)
     plt.grid(False)
-    plt.axis('off')
-    if title: plt.title(title)
+    # plt.axis('off')
+    for i in range(2): axes[i].set_title(titles[i])
     plt.show()
     
 def plot_image(x, band_names, mask_name='cloudmask_en', t_name='time', 

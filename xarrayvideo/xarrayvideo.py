@@ -13,35 +13,46 @@ from .utils import (safe_eval, to_netcdf, normalize, denormalize,
                     detect_planar, detect_rgb, reorder_coords_axis,
                     np2str, str2np, DRWrapper, reorder_coords, is_float)
 from .ffmpeg_wrappers import _ffmpeg_read, _ffmpeg_write
-from .plot import plot_simple
+from .gdal_wrappers import _gdal_read, _gdal_write
+from .plot import plot_pair
 from .metrics import SA, SNR, SM_SSIM
 
-#Globals
-IMPLEMENTED_CODECS= ['libx264', 'libx265', 'vp9', 'ffv1', 'mjpeg']
+#Codecs currently supported
+VIDEO_CODECS= ['libx264', 'libx265', 'vp9', 'ffv1'] #ffmpeg
+IMAGE_CODECS= ['JP2OpenJPEG'] #gdal
+TRUTHY= (1, '1', 'true', True, 'True', 'YES', 'yes')
 
 def get_file_fmt(params):
     'Infer optimal file extension from codec name'
-    if params['c:v'] in ['libx264', 'libx265', 'vp9', 'ffv1', 'mjpeg']:
+    if 'c:v' in params.keys() and params['c:v'] in ['libx264', 'libx265', 'vp9', 'ffv1']:
         return '.mkv'
-    # elif params['c:v'] in ['jpeg2000']:
-    #     return r'_%06d.jp2'
+    elif params['codec'] == 'JP2OpenJPEG':
+        return '.jp2'
+    # elif params['codec'] == 'jpegxl':
+    #     return '.jxl'
     else:
-        raise AssertionError(f'Only codecs {IMPLEMENTED_CODECS} are implemented') 
+        raise AssertionError(f'Only codecs {VIDEO_CODECS} ("c:v" param) and '
+                             f'{IMAGE_CODECS} ("codec" param) are implemented') 
     
 def get_compression(params):
     'Infer compression type (lossy / lossless) from codec name'
-    is_lossless= lambda p: 'lossless' in p.keys() and p['lossless'] in (1, '1', 'true', True, 'True')
+    is_video_lossless= lambda p: 'lossless' in p.keys() and p['lossless'] in TRUTHY
+    is_image_lossless= lambda p: \
+        'QUALITY' in p.keys() and p['QUALITY']=='100' and\
+        'REVERSIBLE' in p.keys() and p['REVERSIBLE']=='YES' and\
+        'YCBCR420' in p.keys() and p['YCBCR420']=='NO'
     
-    if params['c:v'] in ['libx264', 'libx265', 'mjpeg']:
+    if 'c:v' in params.keys() and params['c:v'] in ['libx264', 'libx265']:
         return 'lossy'
-    elif params['c:v'] in ['vp9']:
-        return 'lossless' if is_lossless(params) else 'lossy'
-    elif params['c:v'] in ['ffv1']:
+    elif 'c:v' in params.keys() and params['c:v'] in ['vp9']:
+        return 'lossless' if is_video_lossless(params) else 'lossy'
+    elif 'c:v' in params.keys() and params['c:v'] in ['ffv1']:
         return 'lossless'
-    # elif params['c:v'] in ['jpeg2000']: #'jpegxl' not supported until latest ffmpeg builds
-    #     return 'lossless' if is_lossless(params) else 'lossy'
+    elif 'codec' in params.keys() and params['codec'] in ['JP2OpenJPEG']:
+        return 'lossless' if is_image_lossless(params) else 'lossy'
     else:
-        raise AssertionError(f'Only codecs {IMPLEMENTED_CODECS} are implemented')
+        raise AssertionError(f'Only codecs {VIDEO_CODECS} ("c:v" param) and '
+                             f'{IMAGE_CODECS} ("codec" param) are implemented') 
 
 def get_pix_fmt(params, channels, bits):
     '''
@@ -59,7 +70,7 @@ def get_pix_fmt(params, channels, bits):
         endianness= 'le'
 
     #Select optimal pixel format
-    if params['c:v'] in ['libx264', 'libx265', 'vp9', 'mjpeg']: #Lossy
+    if params['c:v'] in ['libx264', 'libx265', 'vp9']:
         input_pix_fmt= 'gbrp' #Input / Output
         req_pix_fmt= 'yuv444p' #Video 
         
@@ -81,21 +92,14 @@ def get_pix_fmt(params, channels, bits):
             req_pix_fmt+= f'{bits}{endianness}'
         else:
             raise AssertionError(f'For {params["c:v"]=}, {bits=} not supported')
-#     elif params['c:v'] in ['jpeg2000']: #Lossy
-#         input_pix_fmt= 'rgb' #Input / Output
-#         req_pix_fmt= 'yuv444p' #Video 
-        
-#         if bits == 8:
-#             input_pix_fmt+= '24'
-#         elif bits in [10, 12, 16]:
-#             input_pix_fmt+= f'{bits*3}{endianness}'
-#             req_pix_fmt+= f'{bits}{endianness}'
-#         else:
-#             raise AssertionError(f'For {params["c:v"]=}, {bits=} not supported')
     else:
-        raise AssertionError(f'Only codecs {IMPLEMENTED_CODECS} are implemented')
+        raise AssertionError(f'Only codecs {VIDEO_CODECS} are implemented')
         
     return input_pix_fmt, req_pix_fmt
+
+def is_image_sequence(params):
+    return 'c:v' not in params.keys() and 'codec' in params.keys() \
+           and params['codec'] in IMAGE_CODECS
 
 def get_param(possibly_list, position):
     if isinstance(possibly_list, list):
@@ -177,9 +181,12 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
                 elif nan_fill == 'min': array[array_nans]= np.nanmin(array)
                 elif nan_fill == 'max': array[array_nans]= np.nanmax(array)
                 else: raise AssertionError(f'{nan_fill=}?')
+                            
+            #Check if we are encoding a video or an image sequence
+            is_sequence= is_image_sequence(params)
             
             #Use PCA?
-            use_pca= n_components > 0
+            use_pca= (n_components > 0) and not is_sequence
             if use_pca:
                 #Initialize classes, fit transforms
                 DR= DRWrapper(n_components=n_components)
@@ -190,17 +197,20 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
             compression= get_compression(params)
                 
             #Store all channels in sets of 3
-            #TODO: for now, even lossless compression (which supports 1,3,4 channels) is
-            #being stored in groups of 3 channels
-            repeats= 3 - (array.shape[-1] % 3) #How many channels we need to repeat
-            if repeats!=3:
-                array= np.concatenate([array] + [array[...,[-1]*repeats]], axis=-1)
-                bands= list(bands) + ([bands[-1]]*repeats)
-                assert (array.shape[-1] % 3 == 0) and (len(bands) % 3 == 0),\
-                    'Check bug in code, this should never occur'
+            #TODO: even lossless compression (which supports 1,3,4 channels) is stored in sets of 3 channels
+            if is_sequence:
+                repeats= None
+                video_files= 1
+            else:
+                repeats= 3 - (array.shape[-1] % 3) #How many channels we need to repeat
+                if repeats!=3:
+                    array= np.concatenate([array] + [array[...,[-1]*repeats]], axis=-1)
+                    bands= list(bands) + ([bands[-1]]*repeats)
+                    assert (array.shape[-1] % 3 == 0) and (len(bands) % 3 == 0),\
+                        'Check bug in code, this should never occur'
+                video_files= len(bands) // 3
                 
             #Compute minimum and maximum values for every band
-            video_files= len(bands) // 3
             if value_range is None:
                 value_range= np.stack([ np.nanmin(array, axis=tuple(range(array.ndim - 1))), 
                                         np.nanmax(array, axis=tuple(range(array.ndim - 1))) ], axis=1)
@@ -216,24 +226,33 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
             x_len, y_len= array.shape[1], array.shape[2]
 
             #Get pixel format: only some are supported
-            input_pix_fmt, req_pix_fmt= get_pix_fmt(params, 3, bits)
+            if is_sequence:
+                input_pix_fmt, req_pix_fmt= None, None
+            else:
+                input_pix_fmt, req_pix_fmt= get_pix_fmt(params, 3, bits)
                 
             #Deted if planar format
-            planar_in= detect_planar(input_pix_fmt)
+            if is_sequence:
+                planar_in= None
+            else:
+                planar_in= detect_planar(input_pix_fmt)
             
             #Get automatic format
-            if fmt == 'auto': fmt= get_file_fmt(params)
+            if fmt == 'auto': 
+                fmt= get_file_fmt(params)
+            else:
+                assert fmt.startswith('.'), f'{fmt=} must start with "."'
                 
             #Convert rgb <> gbr, etc.
             #This is only relevant for visualizing the output videos
             ordering= 'rgb'
-            if not 'rgb' in input_pix_fmt:
+            if not is_sequence and not 'rgb' in input_pix_fmt:
                 ordering= detect_rgb(input_pix_fmt)
                 if ordering is None: ordering= 'rgb'
 
             #Add custom metainfo used by video2xarray
             metadata= {}
-            metadata['VERSION']= '0.1'
+            metadata['VERSION']= '0.2'
             metadata['BANDS']= str(bands) if len(coord_names) != 4 else str([base_band])
             metadata['CHANNELS']= 3 #Always 3 now
             metadata['COORDS_DIMS']= str(coords)
@@ -251,24 +270,36 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
             #Pathing
             output_path= Path(output_path)
             (output_path / array_id).mkdir(exist_ok=True, parents=True)
-            comp_names= [f'{name}_{i+1:03d}' for i in range(video_files)]
             results[name]= {}
-            results[name]['path']= [output_path / array_id / f'{cn}{fmt}' for cn in comp_names]
+            results[name]['path']= output_path / array_id / ('%s_{id}%s'%(name, fmt))
+            if is_sequence:
+                metadata_path= output_path / array_id / f'{name}.yaml'
+            else:
+                comp_names= [f'{name}_{i+1:03d}' for i in range(video_files)]
+                results[name]['path']= [output_path / array_id / f'{cn}{fmt}' for cn in comp_names]
             
-            #Go over every set of 3 components
-            t0= time.time()         
+            #Start timer
+            t0= time.time()  
             final_params= {**params} #make copy
-            for i, output_path_video in enumerate(results[name]['path']):
-                #Write with ffmpeg
-                final_params['pix_fmt']= req_pix_fmt
-                final_params['r']= 30
-                for k in params.keys(): #If the param is a list, index it with i
-                    final_params[k]= get_param(params[k], i)
-                array_in= array[...,i*3:(i+1)*3]
-                array_in= reorder_coords_axis(array_in, list('rgb'), list(ordering), axis=-1)
-                metadata['ORDER']= i+1
-                _ffmpeg_write(str(output_path_video), array_in, x_len, y_len, final_params, planar_in=planar_in,
-                              loglevel=loglevel, metadata=metadata, input_pix_fmt=input_pix_fmt)
+            if not is_sequence:
+                #Go over every set of 3 components
+                for i, output_path_video in enumerate(results[name]['path']):
+                    #Write with ffmpeg
+                    final_params['pix_fmt']= req_pix_fmt
+                    final_params['r']= 30
+                    for k in params.keys(): #If the param is a list, index it with i
+                        final_params[k]= get_param(params[k], i)
+                    array_in= array[...,i*3:(i+1)*3]
+                    array_in= reorder_coords_axis(array_in, list('rgb'), list(ordering), axis=-1)
+                    metadata['ORDER']= i+1
+                    #if verbose: print(f'{output_path_video} -> {array_in.mean()}, {array_in.max()}')
+                    _ffmpeg_write(str(output_path_video), array_in, x_len, y_len, final_params, 
+                        planar_in=planar_in, loglevel=loglevel, metadata=metadata, input_pix_fmt=input_pix_fmt)
+            else:
+                codec= final_params['codec']
+                del final_params['codec']
+                _gdal_write(str(results[name]['path']), metadata_path, array, 
+                            codec=codec, metadata=metadata, bits=bits, params=final_params)
                 
             #Modify minicube to delete the bands we just processed
             if save_dataset:
@@ -284,14 +315,15 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
             if compute_stats:                
                 #Size and time
                 array_size= array_orig.size * array_orig.itemsize / 2**20 #In Mb (use array_orig dtype)
-                video_sizes= [v.stat().st_size / 2**20 for v in results[name]['path']] #In Mb
+                video_sizes= [v.stat().st_size / 2**20 for v in (output_path / array_id).glob(f'{name}_*')]
                 video_size= sum(video_sizes)
                 percentage= (video_size / array_size)*100
                 bpppb= video_size * 2**20 * 8 / array_orig.size #bits per pixel per band (=bps)
 
-                print_fn(f'{name}: {array_size:.2f}Mb -> {[f"{v:.2f}" for v in video_sizes]}Mb '+\
+                print_fn(f'{name}: {array_size:.2f}Mb -> {[f"{v:.2f}" for v in video_sizes[-10:]]}Mb '\
+                         f'(showing last 10)'+\
                          f'({percentage:.2f}% of original size, {bpppb:.4f} bpppb) in {t1 - t0:.2f}s'\
-                        f'\n - {params=}')
+                         f'\n - {params=}')
                 
                 results[name]['original_size']= array_size
                 results[name]['compressed_size']= video_size
@@ -301,17 +333,20 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
 
                 #Read
                 t0= time.time()
-                array_comp_list= [_ffmpeg_read(v)[0] for v in results[name]['path']]
-                array_comp_list= [reorder_coords_axis(a, list(ordering), list('rgb'), axis=-1) 
-                                  for a in array_comp_list]
-                array_comp= np.concatenate(array_comp_list, axis=-1)
+                if is_sequence:
+                    array_comp= _gdal_read(results[name]['path'], metadata_path)[0]
+                else:
+                    array_comp_list= [_ffmpeg_read(v)[0] for v in results[name]['path']]
+                    array_comp_list= [reorder_coords_axis(a, list(ordering), list('rgb'), axis=-1) 
+                                      for a in array_comp_list]
+                    array_comp= np.concatenate(array_comp_list, axis=-1)
                 
-                #Undo transformations
-                if repeats!= 3:
-                    array_comp= array_comp[...,:-repeats]
-                if use_pca: 
-                    array_comp= denormalize(array_comp, minmax=value_range, bits=bits)
-                    array_comp= DR.inverse_transform(array_comp)
+                    #Undo transformations
+                    if repeats!= 3:
+                        array_comp= array_comp[...,:-repeats]
+                    if use_pca: 
+                        array_comp= denormalize(array_comp, minmax=value_range, bits=bits)
+                        array_comp= DR.inverse_transform(array_comp)
                 
                 #Compare
                 t1= time.time()
@@ -326,8 +361,8 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
                     
                     #Plot last frame
                     if verbose: 
-                        plot_simple(array_orig[-1, ..., -3:], max_val=value_range.max(), factor=10, title='Original')
-                        plot_simple(array_comp[-1, ..., -3:], max_val=value_range.max(), factor=10, title='Compressed')
+                        plot_pair(array_orig[-1, ..., -3:], array_comp[-1, ..., -3:], 
+                                  max_val=value_range.max(), factor=10)
                         print(f'Saturation values per band {bands}):\n {value_range}')
 
                     # ssim_arr= ssim(array_orig, array_comp, channel_axis=3 if channels==3 else None)
@@ -365,9 +400,8 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
                 else:
                     #Plot last frame
                     if verbose: 
-                        plot_simple(array_orig[-1, ..., -3:], max_val=2**bits-1, title='Original')
-                        plot_simple(array_comp[-1, ..., -3:], max_val=2**bits-1, title='Compressed')
-                        
+                        plot_pair(array_orig[-1, ..., -3:], array_comp[-1, ..., -3:], 
+                                  max_val=2**bits-1)                        
                     acc= np.nanmean(array_comp==array_orig)
                     print_fn(f' - acc {acc:.2f}')
                     results[name]['acc']= acc
@@ -387,39 +421,47 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
     return results
 
 #Backwards function
-def video2xarray(input_path, array_id, fmt='auto', exceptions='raise', x_name='x', y_name='y'):
+def video2xarray(input_path, array_id, exceptions='raise', x_name='x', y_name='y'):
     #To path
     path= Path(input_path)
-    
-    #Get automatic file format
-    if fmt == 'auto': fmt= get_file_fmt(params)
     
     #Load xarray
     x= xr.open_dataset(path / array_id / 'x.nc')
     
-    #Read videos
+    #Check if it is a sequence of images or a video
+    meta_files= list((path / array_id).glob('*.yaml'))
+    is_sequence= len(meta_files)
+    
+    #Read videos / image sequences along with their metadata
     arrays, metas= defaultdict(list), defaultdict(list)
-    for video_path in (path / array_id).glob(f'*{fmt}'):
-        array, meta_info= _ffmpeg_read(video_path)
-        array= reorder_coords_axis(array, list(meta_info['CHANNEL_ORDER']), list('rgb'), axis=-1)
-        bands_key= '_'.join(safe_eval(meta_info['BANDS'])) #E.g.: B01_B02_B03
-        arrays[bands_key].append(array)
-        metas[bands_key].append(meta_info)
-        
+    if not is_sequence:
+        for video_path in (path / array_id).glob(f'*'):
+            array, meta_info= _ffmpeg_read(video_path)
+            array= reorder_coords_axis(array, list(meta_info['CHANNEL_ORDER']), list('rgb'), axis=-1)
+            bands_key= '_'.join(safe_eval(meta_info['BANDS'])) #E.g.: B01_B02_B03
+            arrays[bands_key].append(array)
+            metas[bands_key].append(meta_info)
+    else:
+        for metadata_path in meta_files:
+            images_path= path / array_id / (metadata_path.stem + '_{id}.jp2') #TODO: use arbitrary extension
+            array, meta_info= _gdal_read(images_path, metadata_path)
+            bands_key= '_'.join(safe_eval(meta_info['BANDS'])) #E.g.: B01_B02_B03
+            arrays[bands_key].append(array)
+            metas[bands_key].append(meta_info)
+
     #Put the arrays into the Dataset
     for bands_key in arrays.keys():
         array_list, meta_list= arrays[bands_key], metas[bands_key]
-        
         if len(meta_list) > 1:
             #First, we order the arrays using the meta_info of each one
             sort_keys= [int(m['ORDER'])-1 for m in meta_list] #e.g.: [1,3,0,2]
             array_list= [array_list[i] for i in sort_keys]
-            
+
             #We concatenate the final array
             array= np.concatenate(array_list, axis=-1)
         else:
             array= array_list[0]
-            
+
         #Process meta from str
         meta_info= meta_list[0]
         bands= safe_eval(meta_info['BANDS'])
@@ -438,7 +480,7 @@ def video2xarray(input_path, array_id, fmt='auto', exceptions='raise', x_name='x
         #Rescale array
         if normalized:
             array= denormalize(array, minmax=value_range, bits=bits)
-            
+
         #AFTER denormalizing, we revert PCA if it was used
         if use_pca: 
             DR= DRWrapper(params=dr_params_str)
@@ -451,5 +493,60 @@ def video2xarray(input_path, array_id, fmt='auto', exceptions='raise', x_name='x
             except Exception as e:
                 print(f'Exception processing {array_id=} {band=}: {e}')
                 if exceptions == 'raise': raise e
-            
+
     return x
+
+def get_recipe(xarr, t='time', x='longitude', y='latitude', c='level', variables=None, bits=10):
+    '''
+        Returns a default recipe for compressing a whole xarray using xarray2video function
+        This recipe is a dictionary that can be directly used `xarray2video(x, 'data_name', recipe)` 
+        or further refined. 
+        The syntax is:
+        {
+         'video_name_1': (
+            var or (var1, var2, var3), #Variables present in the xarray
+            (t_coord_name, x_coord_name, y_coord_name), #Names of the coordinates in order (t, x, y)
+            [Optional] n_components: 0 or n_components 
+                - 0: store all bands in sets of 3 channels
+                - n_components: store all bands using n_components, which must be divisable by 3
+            [Optional] compression parameters dictionary:  
+               {
+                'c:v': 'libx265',  #[libx264, libx265, vp9, ffv1]
+                'preset': 'medium',  #Preset for quality/encoding speed tradeoff: quick, medium, slow (better)
+                'crf': 3, #3 default, the lower, the higher the quality
+                'x265-params': 'qpmin=0:qpmax=5:psy-rd=0:psy-rdoq=0' #qpmax controls the quality when crf is 0
+               },
+            [Optional] number of bits (e.g.: 8,10,12,16),
+            ),
+         'video_name_2': etc.
+         }
+    '''
+    lossy_params= {
+        'c:v': 'libx265', 'preset': 'medium', 'crf': [0], 
+        'x265-params': 'qpmin=0:qpmax=0.001:psy-rd=0:psy-rdoq=0',
+        }
+    lossless_params= {
+        'c:v': 'ffv1',
+    }
+    recipe= {}
+    if variables is None: variables= xarr.variables
+    
+    #txy
+    vars_txy= [v for v in variables if set(xarr[v].coords.dims) == {t,x,y}]
+    vars_txy_lossy= [v for v in vars_txy if is_float(dtype=xarr[v].dtype)]
+    if len(vars_txy_lossy): recipe['txy_lossy']= (vars_txy, (t,x,y), 0, lossy_params, bits)
+    
+    vars_txy_lossless= [v for v in vars_txy if not is_float(dtype=xarr[v].dtype)]
+    if len(vars_txy_lossless): recipe['txy_lossless']= (vars_txy, (t,x,y), 0, lossless_params, bits)
+    
+    #tcxy
+    vars_txyc= [v for v in variables if set(xarr[v].coords.dims) == {t,c,x,y}]
+    vars_txyc_lossy= [v for v in vars_txyc if is_float(dtype=xarr[v].dtype)]
+    for v in vars_txyc_lossy: 
+        recipe[f'txyc_lossy_{v}']= (v, (t,x,y,c), 0, lossy_params, bits)
+    
+    vars_txyc_lossless= [v for v in vars_txyc if not is_float(dtype=xarr[v].dtype)]
+    for v in vars_txyc_lossless: 
+        recipe[f'txyc_lossless_{v}']= (v, (t,x,y,c), 0, lossless_params, bits)
+    
+    return recipe

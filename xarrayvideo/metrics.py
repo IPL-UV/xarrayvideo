@@ -10,33 +10,41 @@ from .utils import sample, SEED
 #Others
 import numpy as np
 
-def SM_SSIM(original, compressed, channel_axis=-1, data_range=1.0, kernel_size=7, levels=1,
+def SM_SSIM(original, compressed, channel_axis=-1, data_range=1.0, kernel_size=11, levels=1,
             **kwargs):
     '''
          Compute MultiScaleSSIM, Multi-scale Structural Similarity Index Measure.
          This metric is is a generalization of Structural Similarity Index Measure 
          by incorporating image details at different resolution scores.
          https://lightning.ai/docs/torchmetrics/stable/image/multi_scale_structural_similarity.html
+         Tries to use pytorch, otherwise reverts to skimage (slower)
     '''
-    from torchmetrics.functional.image import multiscale_structural_similarity_index_measure as smssim
-    from torchmetrics.functional.image import structural_similarity_index_measure as ssim
-    import torch
+    try:
+        from torchmetrics.functional.image import multiscale_structural_similarity_index_measure as smssim
+        from torchmetrics.functional.image import structural_similarity_index_measure as ssim
+        import torch
+
+        #torchmetrics is expecting (batch, channel, x, y). We will use t for the batch dimension
+        #E.g.: txyc -> tcxy
+        co= torch.from_numpy(np.swapaxes(compressed.astype(np.float32), 1, channel_axis))
+        o= torch.from_numpy(np.swapaxes(original.astype(np.float32), 1, channel_axis))
+
+        #Using smssim with levels=1 should be equivalent to using ssim, but it is not, so we use both
+        if levels>1:
+            #Choose betas, depending on levels
+            betas= (0.0448, 0.2856, 0.3001, 0.2363, 0.1333)[:levels]
+            res= smssim(co, o, kernel_size=kernel_size, reduction='none', betas=betas, **kwargs)
+        else:
+            res= ssim(co, o, kernel_size=kernel_size, reduction='none', **kwargs)
+
+        #Since there might be nans in some timesteps, lets apply the reduction later
+        return np.nanmean(res.numpy())
     
-    #torchmetrics is expecting (batch, channel, x, y). We will use t for the batch dimension
-    #E.g.: txyc -> tcxy
-    co= torch.from_numpy(np.swapaxes(compressed.astype(np.float32), 1, channel_axis))
-    o= torch.from_numpy(np.swapaxes(original.astype(np.float32), 1, channel_axis))
-    
-    #Using smssim with levels=1 should be equivalent to using ssim, but it is not, so we use both
-    if levels>1:
-        #Choose betas, depending on levels
-        betas= (0.0448, 0.2856, 0.3001, 0.2363, 0.1333)[:levels]
-        res= smssim(co, o, kernel_size=kernel_size, reduction='none', betas=betas, **kwargs)
-    else:
-        res= ssim(co, o, kernel_size=kernel_size, reduction='none', **kwargs)
-     
-    #Since there might be nans in some timesteps, lets apply the reduction later
-    return np.nanmean(res.numpy())
+    except Exception as e:
+        print('Warning: Could not use torch\'s SM_SSIM, reverting back to slower ssim from skimage')
+        from skimage.metrics import structural_similarity as ssim
+        assert levels==1, 'Only levels==1 supported with skimage backend'
+        return ssim(original, compressed, channel_axis=channel_axis, data_range=data_range)
 
 def SA(original, compressed, channel_dim):
     '''
