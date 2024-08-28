@@ -11,15 +11,16 @@ import xarray as xr, numpy as np, ffmpeg
 #Own lib
 from .utils import (safe_eval, to_netcdf, normalize, denormalize, 
                     detect_planar, detect_rgb, reorder_coords_axis,
-                    np2str, str2np, DRWrapper, reorder_coords, is_float)
+                    np2str, str2np, DRWrapper, reorder_coords, is_float, SEED)
 from .ffmpeg_wrappers import _ffmpeg_read, _ffmpeg_write
 from .gdal_wrappers import _gdal_read, _gdal_write
 from .plot import plot_pair
-from .metrics import SA, SNR, SM_SSIM
+from .metrics import SA, SNR, SSIM
 
 #Codecs currently supported
 VIDEO_CODECS= ['libx264', 'libx265', 'vp9', 'ffv1'] #ffmpeg
 IMAGE_CODECS= ['JP2OpenJPEG'] #gdal
+EXTENSIONS= ['.mkv', '.jp2']
 TRUTHY= (1, '1', 'true', True, 'True', 'YES', 'yes')
 
 def get_file_fmt(params):
@@ -112,7 +113,7 @@ def get_param(possibly_list, position):
         
 #Forward function
 def xarray2video(x, array_id, conversion_rules, compute_stats=False,
-                 output_path='./', fmt='auto', loglevel='quiet', use_ssim=False, exceptions='raise', 
+                 output_path='./', fmt='auto', loglevel='quiet', metrics_sample=1., exceptions='raise', 
                  verbose=True, nan_fill=None, all_zeros_is_nan=True, save_dataset=True):
     '''
         Takes an xarray Dataset as input, and produces an xarray dataset as output, where some
@@ -241,7 +242,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
             if fmt == 'auto': 
                 fmt= get_file_fmt(params)
             else:
-                assert fmt.startswith('.'), f'{fmt=} must start with "."'
+                assert fmt in EXTENSIONS, f'{fmt=} must be in {EXTENSIONS}'
                 
             #Convert rgb <> gbr, etc.
             #This is only relevant for visualizing the output videos
@@ -364,35 +365,59 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
                         plot_pair(array_orig[-1, ..., -3:], array_comp[-1, ..., -3:], 
                                   max_val=value_range.max(), factor=10)
                         print(f'Saturation values per band {bands}):\n {value_range}')
-
-                    # ssim_arr= ssim(array_orig, array_comp, channel_axis=3 if channels==3 else None)
-                    # print_fn(f' - SSIM {ssim_arr:.6f}, read in {t1 - t0:.2f}s')
-
-                    #Process the orginal array in the same way as the video, to be able to compare them
-                    # array_bands=[]
-                    # for c in range(array_orig.shape[-1]):
-                    #     array_c= array_orig[...,c]
-                    #     array_c[array_c > value_range[c,1]]= value_range[c,1]
-                    #     array_c[array_c < 0]= 0
-                    #     array_c[np.isnan(array_c)]= 0
-                    #     array_bands.append(array_c)
-                    # array_orig_sat= np.stack(array_bands, axis=-1)
-                    array_orig_sat= array_orig #TODO
+                        
+                    #TODO: Process the orginal array in the same way as the video, to be able to compare them
+                    array_orig_sat= array_orig 
 
                     #Setting levels=1, we just do standard SSIM
-                    if use_ssim: ssim_val= SM_SSIM(array_orig_sat, array_comp, channel_axis=-1, 
-                                                   data_range=value_range.max()-value_range.min(), levels=1)
-                    snr, psnr, mse= SNR(array_orig_sat, array_comp, max_value=value_range.max())
-                    exp_sa, err_sa= SA(array_orig_sat, array_comp, channel_dim=-1)
+                    t0= time.time()
+                    try:
+                        from torchmetrics.functional.image import structural_similarity_index_measure as ptSSIM
+                        from torchmetrics.functional.image import peak_signal_noise_ratio as ptPSNR
+                        from torchmetrics.functional.image import spectral_angle_mapper as ptSA
+                        from torchmetrics.functional.regression import mean_squared_error as ptMSE
+                        import torch
+                        
+                        #Sample some data?
+                        if metrics_sample != 1.:
+                            torch.manual_seed(SEED)
+                            ts= array_comp.shape[0]
+                            idx= [torch.randperm(ts)[:int(ts*metrics_sample)]]
+                            comp= comp[idx]
+                            orig= orig[idx]
+                        
+                        #Everything to torch: torchmetrics is expecting (batch, channel, x, y). 
+                        #We will use t for the batch. E.g.: txyc -> tcxy
+                        comp= torch.from_numpy(np.swapaxes(array_comp.astype(np.float32), 1, -1))
+                        orig= torch.from_numpy(np.swapaxes(array_orig_sat.astype(np.float32), 1, -1))
+                        
+                        #We get rid of any timesteps that have any nans either in orig or comp
+                        valid_idx = (torch.isnan(comp) | torch.isnan(orig)).sum(axis=(1,2,3)) == 0
+                        comp= comp[valid_idx]
+                        orig= orig[valid_idx]
+                        
+                        ssim_val= ptSSIM(comp, orig).numpy()
+                        psnr= ptPSNR(comp, orig).numpy()
+                        eps= 1e-8 #Add small epsilon to avoid division by zero
+                        exp_sa= ptSA(comp+eps, orig+eps).numpy()
+                        mse= ptMSE(comp, orig).numpy()
+                        
+                    except Exception as e:
+                        print('It is recommeneded to install the optional dependency `torchmetrics` '
+                              f'for much quiecker metric computation. Exception: {e}')
+                        ssim_val= SSIM(array_orig_sat, array_comp, channel_axis=-1, 
+                                           data_range=value_range.max()-value_range.min())
+                        snr, psnr, mse= SNR(array_orig_sat, array_comp, max_value=value_range.max())
+                        exp_sa, err_sa= SA(array_orig_sat, array_comp, channel_dim=-1)
+                    t1= time.time()
                     
-                    if use_ssim: print_fn(f' - SSIM_sat {ssim_val:.6f} (input saturated)')
-                    print_fn(f' - MSE_sat {mse:.6f} (input saturated)')
-                    print_fn(f' - SNR_sat {snr:.4f} (input saturated)')
-                    print_fn(f' - PSNR_sat {psnr:.4f} (input saturated)')
-                    print_fn(f' - Exp. SA {exp_sa:.4f} (input saturated)')
+                    print_fn(f' - SSIM_sat {ssim_val:.6f}')
+                    print_fn(f' - MSE_sat {mse:.6f}')
+                    print_fn(f' - PSNR_sat {psnr:.4f}')
+                    print_fn(f' - Exp. SA {exp_sa:.4f} ')
+                    print_fn(f'Metrics took {t1-t0:.2f}s to run')
                     
-                    if use_ssim: results[name]['ssim']= ssim_val
-                    results[name]['snr']= snr
+                    results[name]['ssim']= ssim_val
                     results[name]['psnr']= psnr
                     results[name]['mse']= mse
                     results[name]['exp_sa']= exp_sa
@@ -421,7 +446,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
     return results
 
 #Backwards function
-def video2xarray(input_path, array_id, exceptions='raise', x_name='x', y_name='y'):
+def video2xarray(input_path, array_id, exceptions='raise', x_name='x', y_name='y', transpose=False):
     #To path
     path= Path(input_path)
     
@@ -435,7 +460,7 @@ def video2xarray(input_path, array_id, exceptions='raise', x_name='x', y_name='y
     #Read videos / image sequences along with their metadata
     arrays, metas= defaultdict(list), defaultdict(list)
     if not is_sequence:
-        for video_path in (path / array_id).glob(f'*'):
+        for video_path in (path / array_id).glob(f'*.mkv'):
             array, meta_info= _ffmpeg_read(video_path)
             array= reorder_coords_axis(array, list(meta_info['CHANNEL_ORDER']), list('rgb'), axis=-1)
             bands_key= '_'.join(safe_eval(meta_info['BANDS'])) #E.g.: B01_B02_B03
@@ -473,9 +498,10 @@ def video2xarray(input_path, array_id, exceptions='raise', x_name='x', y_name='y
         dr_params_str= meta_info['PCA_PARAMS']
         use_pca= dr_params_str not in ['None', None]
 
-        #TODO: I'm not yet sure why, but saving the video transposes x and y
-        x_pos, y_pos= coords_dims.index(x_name), coords_dims.index(y_name)
-        coords_dims[x_pos], coords_dims[y_pos]= y_name, x_name
+        #TODO: I'm not yet sure why, but saving the video sometimes transposes x and y
+        if transpose:
+            x_pos, y_pos= coords_dims.index(x_name), coords_dims.index(y_name)
+            coords_dims[x_pos], coords_dims[y_pos]= y_name, x_name
 
         #Rescale array
         if normalized:

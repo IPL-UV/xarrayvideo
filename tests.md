@@ -1,3 +1,40 @@
+Cesar ---------------
+
+all: 1060.00Mb -> ['3.57', '7.63', '7.20', '2.47']Mb (showing last 10)(1.97% of original size, 0.6301 bpppb) in 21.90s
+ - params={'c:v': 'libx265', 'preset': 'medium', 'crf': [50], 'x265-params': 'qpmin=0:qpmax=0.1:psy-rd=0:psy-rdoq=0'}
+ - Decompression time 1.74s
+ - MSE_sat 0.000007 (input saturated)
+ - SNR_sat 39.4189 (input saturated)
+ - PSNR_sat 57.5006 (input saturated)
+ - Exp. SA 0.0108 (input saturated)
+(note: using pytorch -> Same results, much much quicker!)
+ - SSIM_sat 0.998445
+ - MSE_sat 0.000007
+ - PSNR_sat 57.5006
+ - Exp. SA 0.0108 
+Metrics took 22.77s to run
+
+all: 1060.00Mb -> ['6.91', '4.08', '3.39', '2.47']Mb (showing last 10)(1.59% of original size, 0.5089 bpppb) in 16.87s
+ - params={'c:v': 'libx265', 'preset': 'medium', 'crf': [50], 'x265-params': 'qpmin=0:qpmax=0.1:psy-rd=0:psy-rdoq=0'}
+ - Decompression time 3.53s
+ - SSIM_sat 0.998070
+ - MSE_sat 0.000011
+ - PSNR_sat 55.7334
+ - Exp. SA 0.0114 
+Metrics took 22.06s to run
+
+all: 1060.00Mb -> ['0.25', '0.25', '0.25', '0.25', '0.25', '0.25', '0.25', '0.25', '0.25', '0.25']Mb (showing last 10)(4.09% of original size, 1.3088 bpppb) in 17.03s
+ - params={'codec': 'JP2OpenJPEG', 'QUALITY': '5', 'YCBCR420': 'NO', 'WRITE_METADATA': 'NO'}
+Reading out/cesar/all_{id}.jp2: 100%|██████████| 106/106 [00:04<00:00, 21.30it/s]
+ - Decompression time 5.09s
+ - SSIM_sat 0.996206
+ - MSE_sat 0.000017
+ - PSNR_sat 53.6105
+ - Exp. SA 0.0155 
+Metrics took 21.74s to run
+
+-----------------
+
 all: 216.56Mb -> ['4.62', '1.57']Mb (2.86% of original size, 0.9148 bpppb) in 20.56s
  - params={'c:v': 'libx265', 'preset': 'medium', 'crf': [50], 'x265-params': ['qpmin=0:qpmax=0.1:psy-rd=0:psy-rdoq=0', 'qpmax=10:psy-rd=0:psy-rdoq=0']}
  - Decompression time 1.06s
