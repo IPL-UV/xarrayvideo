@@ -9,7 +9,7 @@ import numpy as np
 from osgeo import gdal, gdal_array
 from tqdm.auto import trange, tqdm
 
-def _gdal_read(input_path, metadata_path):
+def _gdal_read(input_path, metadata_path, loglevel='quiet'):
     """
     Reads a sequence of images from disk and their corresponding metadata, then constructs
     a numpy array representing the video data. The images are assumed to be stored with a format
@@ -21,6 +21,7 @@ def _gdal_read(input_path, metadata_path):
         metadata_path (str): Path to the metadata file (YAML format). This file should
                              contain metadata about the images such as bit depth, number of
                              channels, and number of frames.
+        loglevel (str): 'quiet' to hide output, or whatever else to show it
 
     Returns:
         tuple: A tuple containing:
@@ -43,7 +44,8 @@ def _gdal_read(input_path, metadata_path):
     #Read the images into a numpy array
     file_list= sorted(glob.glob(str(input_path).format(id='*')))
     images= []
-    for i, file_name in tqdm(enumerate(file_list), total=len(file_list), desc=f'Reading {input_path}'):
+    for i, file_name in tqdm(enumerate(file_list), total=len(file_list), 
+                             desc=f'Reading {input_path}', disable=loglevel=='quiet'):
         dataset= gdal.Open(file_name)
         # if i == 0:
         #     width = dataset.RasterXSize
@@ -60,7 +62,7 @@ def _gdal_read(input_path, metadata_path):
     return video_data, meta_info
 
 def _gdal_write(output_path, metadata_path, array, codec='JP2OpenJPEG', metadata={}, 
-                bits=16, params={}):
+                bits=16, params={}, loglevel='quiet'):
     """
     Write a numpy array to a sequence of JPEG2000 / JPEGXL files with metadata.
 
@@ -72,6 +74,7 @@ def _gdal_write(output_path, metadata_path, array, codec='JP2OpenJPEG', metadata
         metadata (dict): Metadata to write to a YAML file.
         bits (int): Number of bits per pixel (8 or 16).
         params (dict): Additional parameters for the JPEG2000 codec.
+        loglevel (str): 'quiet' to hide output, or whatever else to show it
     """
     # Write the metadata
     with open(metadata_path, 'w') as f:
@@ -90,7 +93,7 @@ def _gdal_write(output_path, metadata_path, array, codec='JP2OpenJPEG', metadata
     # Define the data type based on the bit depth
     data_type = {8: gdal.GDT_Byte, 16: gdal.GDT_UInt16}[bits]
 
-    for i in trange(array.shape[0], desc=f'Writing {output_path}'):
+    for i in trange(array.shape[0], desc=f'Writing {output_path}', disable=loglevel=='quiet'):
         # Create a temporary TIFF dataset in-memory
         temp_path = "/vsimem/temp.tif"  # Use in-memory file system to avoid disk I/O
         temp_dataset = temp_driver.Create(

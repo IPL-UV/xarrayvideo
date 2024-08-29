@@ -1,3 +1,55 @@
+all: 185.62Mb -> ['5.35', '3.26', '1.39']Mb (showing last 10)(5.39% of original size, 3.4466 bpppb) in 31.12s
+ - params={'c:v': 'vp9', 'crf': 1, 'arnr-strength': 2, 'qmin': 0, 'qmax': 1, 'lag-in-frames': 25, 'arnr-maxframes': 7}
+ - Decompression time 0.38s
+ - SSIM_sat 0.999151
+ - MSE_sat 0.000003
+ - PSNR_sat 59.1009
+ - Exp. SA 0.0041 
+Metrics took 5.07s to run
+
+------------------------------------------------
+
+Using only 17.61% of data for metrics computation. Adjust this by modifying global variable METRICS_MAX_N=10000000.0
+ - SSIM_sat 0.997700
+ - MSE_sat 0.000012
+ - PSNR_sat 53.8257
+ - Exp. SA 0.3247 
+Metrics took 3.02s to run
+
+vs:
+ - SSIM_sat 0.997890
+ - MSE_sat 0.000011
+ - PSNR_sat 54.3619
+ - Exp. SA 0.4305 
+Metrics took 5.26s to run
+
+all2: 433.12Mb -> ['0.05', '0.05', '0.05', '0.05', '0.05', '0.05', '0.05', '0.05', '0.05', '0.05']Mb (showing last 10)(4.53% of original size, 2.8964 bpppb) in 22.21s
+ - params={'codec': 'JP2OpenJPEG', 'QUALITY': '25', 'YCBCR420': 'NO', 'WRITE_METADATA': 'NO'}
+ - Decompression time 10.24s
+ - SSIM_sat 0.998590
+ - MSE_sat 0.000010
+ - PSNR_sat 54.6562
+ - Exp. SA 0.0082 
+Metrics took 4.80s to run
+
+all: 433.12Mb -> ['3.62', '3.26', '1.39']Mb (showing last 10)(1.91% of original size, 1.2217 bpppb) in 25.19s
+ - params={'c:v': 'libx265', 'preset': 'medium', 'crf': [1], 'x265-params': ['qpmin=0:qpmax=0.1:psy-rd=0:psy-rdoq=0', 'qpmin=0:qpmax=1:psy-rd=0:psy-rdoq=0', 'qpmin=0:qpmax=10:psy-rd=0:psy-rdoq=0']}
+ - Decompression time 0.77s
+ - SSIM_sat 0.998664
+ - MSE_sat 0.000006
+ - PSNR_sat 56.6928
+ - Exp. SA 0.0080 
+Metrics took 4.88s to run
+
+all: 433.12Mb -> ['7.83', '7.38', '3.67']Mb (showing last 10)(4.36% of original size, 2.7901 bpppb) in 62.57s
+ - params={'c:v': 'vp9', 'crf': 0, 'arnr-strength': 2, 'qmin': 0, 'qmax': 0.5, 'lag-in-frames': 25, 'arnr-maxframes': 7}
+ - Decompression time 1.30s
+ - SSIM_sat 0.999799
+ - MSE_sat 0.000001
+ - PSNR_sat 65.6540
+ - Exp. SA 0.0032 
+Metrics took 30.36s to run
+
 Cesar ---------------
 
 all: 1060.00Mb -> ['3.57', '7.63', '7.20', '2.47']Mb (showing last 10)(1.97% of original size, 0.6301 bpppb) in 21.90s

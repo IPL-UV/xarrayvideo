@@ -13,7 +13,6 @@ import numpy as np
 #NOTE: The use of this functions is discouraged! Install torchmetrics, it is much quicker!
 def SSIM(original, compressed, channel_axis=-1, data_range=1.0):
     from skimage.metrics import structural_similarity as ssim
-    assert levels==1, 'Only levels==1 supported with skimage backend'
     return ssim(original, compressed, channel_axis=channel_axis, data_range=data_range)
 
 def SA(original, compressed, channel_dim):

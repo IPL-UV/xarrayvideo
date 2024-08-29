@@ -17,17 +17,19 @@ from .gdal_wrappers import _gdal_read, _gdal_write
 from .plot import plot_pair
 from .metrics import SA, SNR, SSIM
 
+#Globals
 #Codecs currently supported
 VIDEO_CODECS= ['libx264', 'libx265', 'vp9', 'ffv1'] #ffmpeg
 IMAGE_CODECS= ['JP2OpenJPEG'] #gdal
 EXTENSIONS= ['.mkv', '.jp2']
 TRUTHY= (1, '1', 'true', True, 'True', 'YES', 'yes')
+METRICS_MAX_N= 1e8 #Use sampling for metric computation if N_elements is above this number
 
 def get_file_fmt(params):
     'Infer optimal file extension from codec name'
     if 'c:v' in params.keys() and params['c:v'] in ['libx264', 'libx265', 'vp9', 'ffv1']:
         return '.mkv'
-    elif params['codec'] == 'JP2OpenJPEG':
+    elif 'codec' in params.keys() and params['codec'] == 'JP2OpenJPEG':
         return '.jp2'
     # elif params['codec'] == 'jpegxl':
     #     return '.jxl'
@@ -113,7 +115,7 @@ def get_param(possibly_list, position):
         
 #Forward function
 def xarray2video(x, array_id, conversion_rules, compute_stats=False,
-                 output_path='./', fmt='auto', loglevel='quiet', metrics_sample=1., exceptions='raise', 
+                 output_path='./', fmt='auto', loglevel='quiet', exceptions='raise', 
                  verbose=True, nan_fill=None, all_zeros_is_nan=True, save_dataset=True):
     '''
         Takes an xarray Dataset as input, and produces an xarray dataset as output, where some
@@ -272,9 +274,9 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
             output_path= Path(output_path)
             (output_path / array_id).mkdir(exist_ok=True, parents=True)
             results[name]= {}
-            results[name]['path']= output_path / array_id / ('%s_{id}%s'%(name, fmt))
             if is_sequence:
                 metadata_path= output_path / array_id / f'{name}.yaml'
+                results[name]['path']= [output_path / array_id / ('%s_{id}%s'%(name, fmt))]
             else:
                 comp_names= [f'{name}_{i+1:03d}' for i in range(video_files)]
                 results[name]['path']= [output_path / array_id / f'{cn}{fmt}' for cn in comp_names]
@@ -299,7 +301,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
             else:
                 codec= final_params['codec']
                 del final_params['codec']
-                _gdal_write(str(results[name]['path']), metadata_path, array, 
+                _gdal_write(str(results[name]['path'][0]), metadata_path, array, loglevel=loglevel,
                             codec=codec, metadata=metadata, bits=bits, params=final_params)
                 
             #Modify minicube to delete the bands we just processed
@@ -335,7 +337,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
                 #Read
                 t0= time.time()
                 if is_sequence:
-                    array_comp= _gdal_read(results[name]['path'], metadata_path)[0]
+                    array_comp= _gdal_read(str(results[name]['path'][0]), metadata_path, loglevel=loglevel)[0]
                 else:
                     array_comp_list= [_ffmpeg_read(v)[0] for v in results[name]['path']]
                     array_comp_list= [reorder_coords_axis(a, list(ordering), list('rgb'), axis=-1) 
@@ -369,7 +371,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
                     #TODO: Process the orginal array in the same way as the video, to be able to compare them
                     array_orig_sat= array_orig 
 
-                    #Setting levels=1, we just do standard SSIM
+                    #Torchmetrics is MUCH quicker
                     t0= time.time()
                     try:
                         from torchmetrics.functional.image import structural_similarity_index_measure as ptSSIM
@@ -377,14 +379,6 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
                         from torchmetrics.functional.image import spectral_angle_mapper as ptSA
                         from torchmetrics.functional.regression import mean_squared_error as ptMSE
                         import torch
-                        
-                        #Sample some data?
-                        if metrics_sample != 1.:
-                            torch.manual_seed(SEED)
-                            ts= array_comp.shape[0]
-                            idx= [torch.randperm(ts)[:int(ts*metrics_sample)]]
-                            comp= comp[idx]
-                            orig= orig[idx]
                         
                         #Everything to torch: torchmetrics is expecting (batch, channel, x, y). 
                         #We will use t for the batch. E.g.: txyc -> tcxy
@@ -396,11 +390,22 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
                         comp= comp[valid_idx]
                         orig= orig[valid_idx]
                         
-                        ssim_val= ptSSIM(comp, orig).numpy()
-                        psnr= ptPSNR(comp, orig).numpy()
+                        #Sample some data?
+                        if comp.numel() > METRICS_MAX_N:
+                            sample_fraction= METRICS_MAX_N / comp.numel()
+                            print(f'Using only {sample_fraction*100:.2f}% of data for metrics computation. '
+                                  f'Adjust this by modifying global variable {METRICS_MAX_N=}')
+                            torch.manual_seed(SEED)
+                            ts= comp.shape[0]
+                            idx= [torch.randperm(ts)[:int(ts*sample_fraction)]]
+                            comp= comp[idx]
+                            orig= orig[idx]
+                        
+                        ssim_val= ptSSIM(comp, orig).numpy().item()
+                        psnr= ptPSNR(comp, orig).numpy().item()
                         eps= 1e-8 #Add small epsilon to avoid division by zero
-                        exp_sa= ptSA(comp+eps, orig+eps).numpy()
-                        mse= ptMSE(comp, orig).numpy()
+                        exp_sa= ptSA(comp+eps, orig+eps).numpy().item()
+                        mse= ptMSE(comp, orig).numpy().item()
                         
                     except Exception as e:
                         print('It is recommeneded to install the optional dependency `torchmetrics` '
