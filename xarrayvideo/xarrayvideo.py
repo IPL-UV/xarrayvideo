@@ -23,7 +23,7 @@ VIDEO_CODECS= ['libx264', 'libx265', 'vp9', 'ffv1'] #ffmpeg
 IMAGE_CODECS= ['JP2OpenJPEG'] #gdal
 EXTENSIONS= ['.mkv', '.jp2']
 TRUTHY= (1, '1', 'true', True, 'True', 'YES', 'yes')
-METRICS_MAX_N= 1e8 #Use sampling for metric computation if N_elements is above this number
+METRICS_MAX_N= 3e8 #Use sampling for metric computation if N_elements is above this number
 
 def get_file_fmt(params):
     'Infer optimal file extension from codec name'
