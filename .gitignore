@@ -4,6 +4,7 @@ deepextremes_images/
 *.zarr
 *.pkl
 !examples
+tests.md
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

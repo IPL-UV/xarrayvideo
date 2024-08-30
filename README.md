@@ -17,7 +17,7 @@ NOTE: As of now, everything is loaded in memory, which might be a problem for la
 
 ## Paper
 
-If you find this library useful, please cite the accompanying paper:
+If you find this library useful, please consider citing the accompanying paper:
 ```
 TODO
 ```
@@ -31,7 +31,7 @@ An example `xarray` from the DeepExtremeCubes database is provided as an example
  - The cloud mask with 5 classes is compressed losslessly to 0.3403 bpppb.
  - Sentinel's Scene Classification Layer (SCL) is compressed losslessly to 0.1001 bpppb respectively.
 
-Here is a plot with some results of different compression approaches for the multiespectral Sentinel 2 data (7 bands). Note that we also use JPEG2000 as a comparison, encoding every timestep at a time, but all bands in a single image (instead of relying on sets of 3 bands as for video compression):
+Here is a plot with some results of different compression approaches for the multiespectral Sentinel 2 data (7 bands). Note that we also use JPEG2000 as a comparison, encoding every timestep at a time (but all bands 7 in a single image, instead of relying on sets of 3 bands as for video compression):
 
 ![Results](examples/results_bpppb.png)
 
@@ -89,7 +89,7 @@ cd xarrayvideo
 !unzip cube.zip
 ```
 
-## Examples
+## Usage
 
 To see some examples run `jupyter lab` or VSCode to open `example.ipynb`
 
