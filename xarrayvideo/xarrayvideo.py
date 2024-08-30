@@ -45,8 +45,11 @@ def get_compression(params):
         'REVERSIBLE' in p.keys() and p['REVERSIBLE']=='YES' and\
         'YCBCR420' in p.keys() and p['YCBCR420']=='NO'
     
-    if 'c:v' in params.keys() and params['c:v'] in ['libx264', 'libx265']:
+    if 'c:v' in params.keys() and params['c:v'] in ['libx264']:
         return 'lossy'
+    if 'c:v' in params.keys() and params['c:v'] in ['libx265']:
+        return 'lossy' if 'x265-params' in params.keys() and \
+               'lossless=1' in str(params['x265-params']) else 'lossy'
     elif 'c:v' in params.keys() and params['c:v'] in ['vp9']:
         return 'lossless' if is_video_lossless(params) else 'lossy'
     elif 'c:v' in params.keys() and params['c:v'] in ['ffv1']:
