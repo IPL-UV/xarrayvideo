@@ -117,7 +117,7 @@ def get_param(possibly_list, position):
         return possibly_list
         
 #Forward function
-def xarray2video(x, array_id, conversion_rules, compute_stats=False,
+def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_data_in_stats=False,
                  output_path='./', fmt='auto', loglevel='quiet', exceptions='raise', 
                  verbose=True, nan_fill=None, all_zeros_is_nan=True, save_dataset=True):
     '''
@@ -439,8 +439,9 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False,
                     print_fn(f' - acc {acc:.2f}')
                     results[name]['acc']= acc
 
-                results[name]['compressed']= array_comp
-                results[name]['original']= array_orig
+                if include_data_in_stats:
+                    results[name]['compressed']= array_comp
+                    results[name]['original']= array_orig
                 
         except Exception as e:
             print(f'Exception processing {array_id=} {name=}: {e}')
