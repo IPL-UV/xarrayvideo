@@ -17,9 +17,11 @@ def plot_pair(img1, img2, max_val, factor=5, transpose=None,
     else:
         for i, img in enumerate([img1, img2]):
             axes[i].imshow(np.minimum(img*factor, max_val)/max_val)
-    plt.grid(False)
+    # plt.grid(False)
     # plt.axis('off')
-    for i in range(2): axes[i].set_title(titles[i])
+    for i in range(2): 
+        axes[i].set_title(titles[i])
+        axes[i].grid(False)
     plt.show()
     
 def plot_image(x, band_names, mask_name='cloudmask_en', t_name='time', 

@@ -26,15 +26,17 @@ TODO
 ### DeepExtremeCubes
 
 An example `xarray` from the DeepExtremeCubes database is provided as an example. It consists of 495 timesteps of 128x128 Sentinel2 data sampled every 5 days, along with other segmentation maps. 
+
  - For the Sentinel2 data, the library automatically compresses lossily all 7 bands `'B04','B03','B02','B8A','B05','B06','B07'` into 3 videos (as each video can only encode up to 3 bands at a time). See Figure below for compression results.
  - The cloud mask with 5 classes is compressed losslessly to 0.3403 bpppb (23.5x compression).
  - Sentinel's Scene Classification Layer (SCL) is compressed losslessly to 0.1001 bpppb (79.9x compression).
 
 Here is a plot with some results of different compression approaches for the multiespectral Sentinel 2 data (7 bands). Note that we also use JPEG2000 as a comparison, encoding every timestep at a time (but all bands 7 in a single image, instead of relying on sets of 3 bands as for video compression):
 
-![Results](examples/results_deepextremes_7channels_bpppb.png)
+![](examples/results_deepextremes_7channels_bpppb.png)
 
 For this data, some conclusions can be reached. In summary: `x265 > vp9 >> JPEG2000` and `16 > 12 > 10 >> 8` bits.
+
  - 8bits is always inferior to 10-16bits, and 12 bits is slightly better than 10 bits.
  - Video compression (either x265 or vp9) is always better than JPEG2000 compression of each timestep separately
  - x265 is slightly better and much quicker than vp9 in compression, so it is preferred
@@ -45,10 +47,10 @@ For this data, some conclusions can be reached. In summary: `x265 > vp9 >> JPEG2
 Example of compression (1.47% of original size). The quality loss is visually imperceptible.
 
 Original (download for full size):
-![Original image](examples/RGB_original.jpg)
+![](examples/RGB_original.jpg)
 
 Compressed (download for full size):
-![Compressed image](examples/RGB_compressed.jpg)
+![](examples/RGB_compressed.jpg)
 
 These visualizations were generated using [txyvis](https://github.com/OscarPellicer/txyvis)
 
@@ -56,9 +58,10 @@ These visualizations were generated using [txyvis](https://github.com/OscarPelli
 
 This test dataset consists of a single cube of 512x512 Sentinel 2 images of 102 timesteps, where every timestep corresponds to a month of observations, that was processed to exclude clouds. It contains 10 bands: `'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B8A', 'B11', 'B12'`. 
 
-![Results](examples/results_cesar_10channels_bpppb.png)
+![](examples/results_cesar_10channels_bpppb.png)
 
 The conclusions are similar to the previous datacube:
+
  - This data is easier to compress (probably due to the absence of clouds) achieving overall higher PSNRs than for the previous data
  - x265 is overall better than JPEG2000, winning in ~10db PSNR at 1bpppb
  - x265 much quicker and slightly better than vp9, so it is preferred
@@ -67,12 +70,13 @@ The conclusions are similar to the previous datacube:
 #### About using PCA
 
 For this data, we additionally compare the base approach of encoding all 11 channels in sets of 3 videos, with two other approaches: 
+
  - Apply PCA, and then encode with a quality that decreases for less important PCs
  - Apply PCA, and then encode all channels with the same quality, but drop the last 2 channels, so all bands fit in just 3 videos of 3 channels each.
  
 The results for this tests are the following:
 
-![Results](examples/results_cesar_9channels_PCA_bpppb.png)
+![](examples/results_cesar_9channels_PCA_bpppb.png)
 
 As can be seen, the base approach of encoding without PCA seems to peform best. This is likely due to PCA shifting the distribution of the data so that standard video codecs, not designed for this data, do not work opimally.
 
@@ -80,9 +84,17 @@ As can be seen, the base approach of encoding without PCA seems to peform best. 
 
 We will 284 timesteps (period of 6h) of ERA5's `wind_u` variable at its native resolution (1440x721x13), hence this being 13-channel dataset. For this test, we don't include 8 or 10 bits results for faster results, since we saw that hihger bits are generally better.
 
-![Results](examples/results_era5_wind_u2_bpppb.png)
+![](examples/results_era5_wind_u2_bpppb.png)
 
 In this case, the conclusions are different from the satellite data. Overall, JPEG200 seems to do better for all metrics considered, except for decoding time (which could be improved with parallel reading). It might be the case that video codecs fail to efficiently encode ERA5 data, which deviates significantly from the natural images that they were designed to encode.
+
+#### About using PCA
+
+Similarly, we additionally compare the base approach of encoding all 13 height levels in sets of 3 videos, with the two other PCA-based approaches. We also encode the `temperature` variable this time.
+
+![](examples/results_era5_temperature_bpppb.png)
+
+Once again, JPEG2000 is superior to all the video encoding methods, and PCA is inferior to direct encoding.
 
 ## Installation
 
@@ -139,7 +151,7 @@ lossy_params= { 'c:v': 'libx265', 'preset': 'medium', 'crf': 1,
                 'x265-params': 'qpmin=0:qpmax=0.1:psy-rd=0:psy-rdoq=0  }
 conversion_rules= {
     's2': ( ('B07','B06','B05','B04','B03','B02','B8A'), 
-                ('time','x','y'), 0, image_lossy_params, 16),
+                ('time','x','y'), 0, lossy_params, 12),
     'scl': ( 'SCL', ('time','x','y'), 0, lossless_params, 8),
     'cm': ( 'cloudmask_en', ('time','x','y'), 0, lossless_params, 8),
     }
