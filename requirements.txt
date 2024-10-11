@@ -1,0 +1,12 @@
+   xarray
+   numpy
+   ffmpeg
+   scikit-image
+   scikit-learn
+   pyyaml
+   zarr
+   netcdf4
+   ffmpeg-python
+   gcsfs
+   tqdm
+   seaborn
