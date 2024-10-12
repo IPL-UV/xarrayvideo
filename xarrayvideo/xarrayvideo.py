@@ -23,7 +23,7 @@ VIDEO_CODECS= ['libx264', 'libx265', 'vp9', 'ffv1'] #ffmpeg
 IMAGE_CODECS= ['JP2OpenJPEG'] #gdal
 EXTENSIONS= ['.mkv', '.jp2']
 TRUTHY= (1, '1', 'true', True, 'True', 'YES', 'yes')
-METRICS_MAX_N= 3e8 #Use sampling for metric computation if N_elements is above this number
+METRICS_MAX_N= 1e8 #Use sampling for metric computation if N_elements is above this number
 
 def get_file_fmt(params):
     'Infer optimal file extension from codec name'
@@ -224,7 +224,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                 value_range= np.array([value_range]*len(bands))
         
             #Normalize?
-            normalized= compression == 'lossy' or is_float(array_orig)
+            normalized= compression == 'lossy' or is_float(array)
             if normalized:
                 array= normalize(array, minmax=value_range, bits=bits)
                 
@@ -531,7 +531,7 @@ def video2xarray(input_path, array_id, exceptions='raise', x_name='x', y_name='y
 
     return x
 
-def get_recipe(xarr, t='time', x='longitude', y='latitude', c='level', variables=None, bits=10):
+def get_recipe(xarr, t='time', x='longitude', y='latitude', c='level', variables=None, bits=12):
     '''
         Returns a default recipe for compressing a whole xarray using xarray2video function
         This recipe is a dictionary that can be directly used `xarray2video(x, 'data_name', recipe)` 
