@@ -200,7 +200,12 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                 print('Explained variance:', [f"{v*100:.4f}%" for v in DR.dr.explained_variance_ratio_])
                 
             #Get compression depending on codec's name
+            #And check that it is possible!
             compression= get_compression(params)
+            if compression == 'lossless' and (array.dtype.itemsize * 8 > bits):
+                compression = 'lossy'
+                print(f'Warning: Eventhough the codec is lossless, the data has {array.dtype.itemsize*8}bits, '+\
+                      f'but codec uses only {bits}bits. Compression will be handled as lossy.')
                 
             #Store all channels in sets of 3
             #TODO: even lossless compression (which supports 1,3,4 channels) is stored in sets of 3 channels
@@ -223,7 +228,8 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
             else: #Or use the provided range
                 value_range= np.array([value_range]*len(bands))
         
-            #Normalize?
+            #Normalize if compression is lossy or, being lossless, the array is float
+            #Note that integer arrays with more bits than array.nbytes * 8 > bits have been force to be lossy
             normalized= compression == 'lossy' or is_float(array)
             if normalized:
                 array= normalize(array, minmax=value_range, bits=bits)

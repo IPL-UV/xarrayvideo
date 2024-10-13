@@ -1,14 +1,11 @@
-#Load libs
 import xarray as xr
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
-from xarrayvideo import xarray2video, video2xarray, gap_fill, plot_image, to_netcdf
 from tqdm.auto import tqdm
 import warnings
 
-import satalign, satalign.ecc, satalign.pcc #satalign.lgm
-import cv2
+from xarrayvideo import xarray2video, video2xarray, plot_image, to_netcdf
 
 def to_video(dataset_in_path, dataset_out_path, images_out_path, lossy_params, 
              lossless_params, conversion_rules, files, debug, align):    
@@ -33,6 +30,8 @@ def to_video(dataset_in_path, dataset_out_path, images_out_path, lossy_params,
             
             #Align cube
             if align:
+                import satalign, satalign.ecc, satalign.pcc #satalign.lgm
+                import cv2
                 def get_masked_mean_reference(minicube, bands, mask_name='cloudmask_en'):
                     data = minicube[bands].isel(time=slice(74, None)).to_array().transpose('variable', 'time', 'y', 'x')
                     mask = minicube[mask_name].isel(time=slice(74, None)).transpose('time', 'y', 'x')
