@@ -93,7 +93,7 @@ def create_xarray_for_location(location_path, label_dirs, band_names=['B', 'G', 
                 if label_file:
                     with rasterio.open(label_file) as label_src:
                         label_raw = label_src.read() 
-                        label_data = np.argmax(label_raw, axis=0) #Undo the one-hot encoding
+                        label_data = np.argmax(label_raw, axis=0).astype(np.uint8) #Undo the one-hot encoding
                     label_times.append(times[-1])
                     labels.append(label_data)
                     break
@@ -184,7 +184,7 @@ def generate_id_files(input_path_subsets, output_path_subsets):
             for unique_id in sorted(unique_ids):  # Optionally sort the unique IDs
                 output_file.write(f"{unique_id}\n")
             
-def to_video(input_path, output_path, images_output_path, conversion_rules, debug, skip_existing=True):
+def to_video(input_path, output_path, images_output_path, conversion_rules, skip_existing=True):
     
     files= list(input_path.glob('*.nc'))
     
@@ -204,6 +204,7 @@ def to_video(input_path, output_path, images_output_path, conversion_rules, debu
 
             # Load
             minicube= xr.open_dataset(input_path)
+            minicube['labels']= minicube['labels'].astype(np.uint8)
             
             # Compress
             arr_dict= xarray2video(minicube, array_id, conversion_rules,
@@ -212,11 +213,11 @@ def to_video(input_path, output_path, images_output_path, conversion_rules, debu
                            )  
 
             # Plot image every 10
-            if i%10 == 0:
+            if True: #i%10 == 0:
                 minicube_new= video2xarray(output_path, array_id) 
-                plot_image(minicube_new, list('RGB'), 
-                           save_name=str(images_output_path/f'{array_id}.jpg'), 
-                           show=False, mask_name=None)
+                plot_image(minicube_new.isel(time=slice(None,None,31)).astype(np.float32)/10000.,
+                           list('RGB'), mask_name=None, stack_every=12, show=False, 
+                           save_name=str(images_output_path/f'{array_id}.jpg'))
 
         except Exception as e:
             print(f'Exception processing {array_id=}: {e}')
@@ -226,9 +227,9 @@ if __name__ == '__main__':
     datasets_path= Path("/scratch/users/databases/")
     planet_root = datasets_path / 'dynamicearthnet'
     output_path_xarray = datasets_path / 'dynamicearthnet-xarray'
-    output_path_video = datasets_path / 'dynamicearthnet-video'
+    output_path_video = datasets_path / 'dynamicearthnet-video-53psnr'
     input_path_subsets = datasets_path / 'dynamicearthnet' / 'dynnet_training_splits'
-    images_output_path= Path('./dynamicearthnet_images')
+    images_output_path= Path('./dynamicearthnet_images-53psnr')
     label_dirs = [planet_root / "dynamicearthnet_test_labels", planet_root / "labels" / "labels"]
     
     # Set the video parameters
@@ -244,23 +245,21 @@ if __name__ == '__main__':
                       'crf': 7,
                       'tune': 'psnr',
                      }
-                    ][0] #Choose the params
+                    ][1] #Choose the params
     lossless_params= { 'c:v':'ffv1' }
     conversion_rules= {
-        'bands': (['NIR', 'R', 'G', 'B'], ('time', 'y', 'x'), 0, lossy_params, 12),
+        'bands': (['R', 'G', 'B', 'NIR'], ('time', 'y', 'x'), 0, lossy_params, 12),
         'labels': ('labels', ('time_month', 'y', 'x'), 0, lossless_params, 8),
         }
-    debug= True
-    skip_existing= False
+    skip_existing= True
     
     # Transform the original dataset (after downloading and unzipping) to xarray
     output_path_xarray.mkdir(exist_ok=True)
     to_xarray(planet_root, output_path_xarray, label_dirs, skip_existing=skip_existing)
-    
-    # Extract subsets from train.txt, val.txt, test.txt
     generate_id_files(input_path_subsets, output_path_xarray)
     
     # Transform the xarray dataset to xarrayvideo
     output_path_video.mkdir(exist_ok=True)
-    to_video(output_path_xarray, output_path_video, images_output_path, conversion_rules, debug,
+    to_video(output_path_xarray, output_path_video, images_output_path, conversion_rules,
              skip_existing=skip_existing)
+    generate_id_files(input_path_subsets, output_path_video)

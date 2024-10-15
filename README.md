@@ -119,7 +119,7 @@ Test installation:
 ```bash
 git clone https://github.com/OscarPellicer/xarrayvideo.git
 cd xarrayvideo
-pip install -e .[all]
+pip install -e .[all] #--no-deps
 ```
 
 Standard installation (WIP):

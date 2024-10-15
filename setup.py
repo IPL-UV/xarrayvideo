@@ -22,7 +22,6 @@ setup(
     install_requires=[
         "xarray",
         "numpy",
-        "ffmpeg",
         "scikit-image",
         "scikit-learn",
         "pyyaml",

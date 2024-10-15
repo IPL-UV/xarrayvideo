@@ -13,7 +13,6 @@ from .utils import (safe_eval, to_netcdf, normalize, denormalize,
                     detect_planar, detect_rgb, reorder_coords_axis,
                     np2str, str2np, DRWrapper, reorder_coords, is_float, SEED)
 from .ffmpeg_wrappers import _ffmpeg_read, _ffmpeg_write
-from .gdal_wrappers import _gdal_read, _gdal_write
 from .plot import plot_pair
 from .metrics import SA, SNR, SSIM
 
@@ -190,6 +189,8 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                             
             #Check if we are encoding a video or an image sequence
             is_sequence= is_image_sequence(params)
+            if is_sequence: #We only import gdal if needed
+                from .gdal_wrappers import _gdal_read, _gdal_write
             
             #Use PCA?
             use_pca= (n_components > 0) and not is_sequence
@@ -198,14 +199,6 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                 DR= DRWrapper(n_components=n_components)
                 array= DR.fit_transform(array)
                 print('Explained variance:', [f"{v*100:.4f}%" for v in DR.dr.explained_variance_ratio_])
-                
-            #Get compression depending on codec's name
-            #And check that it is possible!
-            compression= get_compression(params)
-            if compression == 'lossless' and (array.dtype.itemsize * 8 > bits):
-                compression = 'lossy'
-                print(f'Warning: Eventhough the codec is lossless, the data has {array.dtype.itemsize*8}bits, '+\
-                      f'but codec uses only {bits}bits. Compression will be handled as lossy.')
                 
             #Store all channels in sets of 3
             #TODO: even lossless compression (which supports 1,3,4 channels) is stored in sets of 3 channels
@@ -227,10 +220,19 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                                         np.nanmax(array, axis=tuple(range(array.ndim - 1))) ], axis=1)
             else: #Or use the provided range
                 value_range= np.array([value_range]*len(bands))
+            value_range= value_range.astype(np.float32)
         
-            #Normalize if compression is lossy or, being lossless, the array is float
-            #Note that integer arrays with more bits than array.nbytes * 8 > bits have been force to be lossy
-            normalized= compression == 'lossy' or is_float(array)
+            #Normalize data?
+            compression= get_compression(params)
+            is_int_but_does_not_fit= (array.dtype.itemsize * 8 > bits) and np.nanmax(array) > (2**bits-1)
+            normalized= is_float(array) or is_int_but_does_not_fit
+            if compression == 'lossless':
+                if is_int_but_does_not_fit:
+                    print(f'Warning: Eventhough the codec is lossless, the data has {array.dtype.itemsize*8}bits '+\
+                          f'AND {np.nanmax(array)=} > {2**bits-1=}. Compression will not be lossless.')
+                elif is_float(array):
+                    print(f'Warning: Eventhough the codec is lossless, the data is of float type. '+\
+                          'Compression will not be lossless.')
             if normalized:
                 array= normalize(array, minmax=value_range, bits=bits)
                 
@@ -243,7 +245,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
             else:
                 input_pix_fmt, req_pix_fmt= get_pix_fmt(params, 3, bits)
                 
-            #Deted if planar format
+            #Detect if planar format
             if is_sequence:
                 planar_in= None
             else:
@@ -461,7 +463,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
     return results
 
 #Backwards function
-def video2xarray(input_path, array_id, exceptions='raise', x_name='x', y_name='y', transpose=False):
+def video2xarray(input_path, array_id, exceptions='raise', x_name=None, y_name=None, transpose=False):
     #To path
     path= Path(input_path)
     
@@ -482,6 +484,7 @@ def video2xarray(input_path, array_id, exceptions='raise', x_name='x', y_name='y
             arrays[bands_key].append(array)
             metas[bands_key].append(meta_info)
     else:
+        from .gdal_wrappers import _gdal_read
         for metadata_path in meta_files:
             images_path= path / array_id / (metadata_path.stem + '_{id}.jp2') #TODO: use arbitrary extension
             array, meta_info= _gdal_read(images_path, metadata_path)
@@ -512,9 +515,12 @@ def video2xarray(input_path, array_id, exceptions='raise', x_name='x', y_name='y
         bits= int(meta_info['BITS'])
         dr_params_str= meta_info['PCA_PARAMS']
         use_pca= dr_params_str not in ['None', None]
-
+        
         #TODO: I'm not yet sure why, but saving the video sometimes transposes x and y
         if transpose:
+            assert x_name is not None and y_name is not None, \
+                f'If {transpose=}, {x_name=} and {y_name=} cannot be None. '+\
+                f'They must be the name of the coordinates wrt which we will do the transpose.'
             x_pos, y_pos= coords_dims.index(x_name), coords_dims.index(y_name)
             coords_dims[x_pos], coords_dims[y_pos]= y_name, x_name
 
