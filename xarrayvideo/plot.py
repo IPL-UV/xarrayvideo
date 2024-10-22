@@ -45,7 +45,7 @@ def plot_image(x, band_names, mask_name='cloudmask_en', t_name='time',
         xlabels= list(map(lambda i_d: f'{i_d[0]} {np.datetime_as_string((i_d[1]), unit="D")}',
                           enumerate(x[t_name].values)))
     except:
-        xlabels= np.arange(len(x.shape[1]))
+        xlabels= None #np.arange(len(x.shape[1]))
                 
     img_comp= plot_maps(
             images=[txy[:,idx] for idx in plot_idx], 

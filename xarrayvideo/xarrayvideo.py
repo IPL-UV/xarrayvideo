@@ -480,7 +480,7 @@ def video2xarray(input_path, array_id, exceptions='raise', x_name=None, y_name=N
         for video_path in (path / array_id).glob(f'*.mkv'):
             array, meta_info= _ffmpeg_read(video_path)
             array= reorder_coords_axis(array, list(meta_info['CHANNEL_ORDER']), list('rgb'), axis=-1)
-            bands_key= '_'.join(safe_eval(meta_info['BANDS'])) #E.g.: B01_B02_B03
+            bands_key = '_'.join(map(str, safe_eval(meta_info['BANDS']))) #E.g.: B01_B02_B03
             arrays[bands_key].append(array)
             metas[bands_key].append(meta_info)
     else:

@@ -27,13 +27,14 @@ Instructions for downlading the dynamicearthnet data:
 To do inference on the data using the forked repo https://github.com/OscarPellicer/dynnet
 Note that this repo has been adapted to use the xarray / xarrayvideo version of the dataset
 1. Download the weights into the repo: 
+    git clone https://github.com/OscarPellicer/dynnet
     cd ~/dynnet
     wget -r -np -nH --cut-dirs=4 -R "index.html*" https://cvg.cit.tum.de/webshare/u/toker/dynnet_ckpt/
 
-2. Edit config/defaults.yaml > DATA > ROOT to point to dynamicearthnet-xarray path
-
-3. Run inference: 
-    python inference.py --phase test --config config/defaults.yaml --checkpoint ./weights/3dconv/weekly/best_ckpt.pth --dataset xarray
+2. Run inference:
+    chmod +x run_inference.sh
+    ./run_inference.sh
+    python inference.py --phase val --config config/defaults.yaml --checkpoint ./weights/single_unet/weekly/best_ckpt.pth --dataset xarray --model single_unet --time weekly --data /scratch/users/databases/dynamicearthnet-xarray/
 '''
 
 import xarray as xr

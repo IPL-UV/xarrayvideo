@@ -8,13 +8,17 @@ import warnings
 from xarrayvideo import xarray2video, video2xarray, plot_image, to_netcdf
 
 def to_video(dataset_in_path, dataset_out_path, images_out_path, lossy_params, 
-             lossless_params, conversion_rules, files, debug, align):    
+             lossless_params, conversion_rules, files, debug, align, ignore_existing=True):    
     #Run for all cubes
     for i, input_path in (pbar:=tqdm(enumerate(files), total=len(files))):
         try:
             #Print name
             array_id= '_'.join(input_path.stem.split('_')[1:3])
             pbar.set_description(array_id)
+            
+            #Check if it exists
+            if (dataset_out_path / array_id).exists() and ignore_existing:
+                continue
 
             #Load
             minicube= xr.open_dataset(input_path, engine='zarr')
@@ -76,6 +80,8 @@ def to_video(dataset_in_path, dataset_out_path, images_out_path, lossy_params,
 
         except Exception as e:
             print(f'Exception processing {array_id=}: {e}')
+            import traceback
+            traceback.print_exc()
             if debug: raise e
 
         #Stop?
@@ -113,6 +119,7 @@ if __name__ == '__main__':
     files= list(dataset_in_path.glob('*/*.zarr'))
     debug= False
     align= False
+    ignore_existing= True
     
     to_video(dataset_in_path, dataset_out_path, images_out_path, lossy_params, 
-             lossless_params, conversion_rules, files, debug, align)
+             lossless_params, conversion_rules, files, debug, align, ignore_existing=ignore_existing)
