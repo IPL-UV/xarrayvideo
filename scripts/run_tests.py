@@ -1,3 +1,11 @@
+'''
+Examples:
+python scripts/run_tests.py --dataset deepextremes --rules_name 7channels
+python scripts/run_tests.py --dataset dynamicearthnet --rules_name 4channels
+python scripts/run_tests.py --dataset custom --rules_name 11channels
+python scripts/run_tests.py --dataset era5 --rules_name temperature
+'''
+
 import xarray as xr
 import numpy as np
 from pathlib import Path
@@ -22,15 +30,59 @@ import statsmodels.api as sm
 
 rng= np.random.default_rng(seed=42)
 
+import argparse
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Process command-line options")
+
+    parser.add_argument(
+        "--continue_from_temp",
+        action="store_true",
+        default=False,
+        help="If true, load 'results_temp.pkl' and just save/plot whatever is there."
+    )
+    
+    parser.add_argument(
+        "--use_saved",
+        action="store_true",
+        help="If true, use saved .pkl results data (not temp, but final saves); otherwise, run the tests."
+    )
+    
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        default=False,
+        help="If true, only one cube per test is performed, and errors are raised."
+    )
+    
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        choices=['deepextremes', 'dynamicearthnet', 'custom', 'era5'],
+        default="custom",
+        help="Specify the dataset to use. Choices are 'deepextremes', 'dynamicearthnet', 'custom', 'era5'."
+    )
+    
+    parser.add_argument(
+        "--rules_name",
+        type=str,
+        default="11channels",
+        help="Specify rule name, e.g., '11channels', '7channels', etc., for save name."
+    )
+
+    return parser.parse_args()
+
 if __name__ == '__main__':
     
     #____COFNIG____
     
     # Global config
-    USE_SAVED= False #If True, use saved .pkl results data, otherwise run the tests
-    DEBUG= False #If True, only one cube per test is performed, and errors are risen
-    DATASET= 'custom' #One of ['deepextremes', 'dynamicearthnet', 'custom', 'era5']
-    RULES_NAME= '11channels' #'11channels', '7channels', etc., just for save name
+    args= parse_args()
+    CONTINUE_FROM_TEMP= args.continue_from_temp #ITf true, load 'results_temp.pkl' and just save / plot whatever is there
+    USE_SAVED= args.use_saved #If True, use saved .pkl results data, otherwise run the tests
+    DEBUG= args.debug #If True, only one cube per test is performed, and errors are risen
+    DATASET= args.dataset #One of ['deepextremes', 'dynamicearthnet', 'custom', 'era5']
+    RULES_NAME= args.rules_name #'11channels', '7channels', etc., just for save name
 
     if DATASET == 'deepextremes':
         #Take N random cubes
@@ -53,8 +105,8 @@ if __name__ == '__main__':
         raise RuntimeError(f'Unknown {DATASET=}')
 
     #Define all tests
-    n_bits= [12,16] #[8,10,12,16], [12, 16]
-    tests= ['libx265', 'vp9', 'JP2OpenJPEG']
+    n_bits= [16,12,10,8] #[8,10,12,16], [12, 16]
+    tests= ['JP2OpenJPEG', 'libx265', 'vp9']
     # tests= ['libx265', 'libx265 (PCA)', 'libx265 (PCA - 9 bands)', 'JP2OpenJPEG']
     # tests= ['libx265', 'libx265 (PCA)', 'libx265 (PCA - 12 bands)', 'JP2OpenJPEG'] #'libx265',   'libx265 (PCA)'
     crfs= ['Best','Very high','High','Medium','Low','Very low']# + ['Very low 2', 'Very low 3'] 
@@ -69,12 +121,24 @@ if __name__ == '__main__':
                        'qpmin=0:qpmax=0.01', 
                        # 'qpmin=0:qpmax=0.1:psy-rd=0:psy-rdoq=0'
                      ] + ['']*10
-    x265_params= [{'c:v': 'libx265', 'preset':'medium', 'tune':'psnr', 'crf': x265_crfs_list[i], 'x265-params':x265_param_list[i]} 
+    x265_params= [{'c:v': 'libx265', 'preset':'medium', 'tune':'psnr', 
+                   'crf': x265_crfs_list[i], 'x265-params':x265_param_list[i]} 
                     for i in range(6)] #'tune:psnr' vs psy-rd=0:psy-rdoq=0
     x265_params_PCA= [ {'c:v': 'libx265', 'preset':'medium', 
                         'crf': [x265_crfs_list[i]] + [x265_crfs_list[i+j] for j in range(5)], 
                         'x265-params': [x265_param_list[i]] + [x265_param_list[i+j] for j in range(5)] } 
                        for i in range(6)]
+    
+    #hevc_nvenc config
+    hevc_nvenc_params= [
+        {'c:v': 'hevc_nvenc', 'preset': 'medium', 'tune': 'lossless', 'qp': 0},
+        {'c:v': 'hevc_nvenc', 'preset': 'medium', 'tune': 'hq', 'qp': 0, 'qp-max': 0.01, 'qp-min': 0},
+        {'c:v': 'hevc_nvenc', 'preset': 'medium', 'tune': 'hq', 'qp': 1},
+        {'c:v': 'hevc_nvenc', 'preset': 'medium', 'tune': 'hq', 'qp': 7},
+        {'c:v': 'hevc_nvenc', 'preset': 'medium', 'tune': 'hq', 'qp': 16},
+        {'c:v': 'hevc_nvenc', 'preset': 'medium', 'tune': 'hq', 'qp': 27},
+    ] 
+    
     #VP9 config
     # vp9_crfs_list= [0, 0, 0, 1, 5, 10, 20, 30]
     # vp9_qmax_list= [0.0001, 0.01, 1, 10000, 10000, 10000]
@@ -97,18 +161,18 @@ if __name__ == '__main__':
     jpeg2000_params= [ {'codec': 'JP2OpenJPEG', 'QUALITY': str(jpeg2000_quality_list[i]), 
                         'REVERSIBLE': 'YES' if i==0 else 'NO', 'YCBCR420':'NO'} for i in range(6)]
 
-    codec_params= dict(zip(tests, [x265_params, vp9_params, jpeg2000_params]))
+    codec_params= dict(zip(tests, [jpeg2000_params, x265_params, vp9_params]))
     # codec_params= dict(zip(tests, [x265_params, x265_params_PCA, x265_params_PCA, jpeg2000_params]))
 
     metrics_keep= ['compression', 'psnr', 'mse', 'bpppb', 'exp_sa', 'time', 'd_time', 'ssim']
     
     # Set save name and create path    
     save_name= f'./results/results_{DATASET}_{RULES_NAME}'
-    Path(save_name.parent).mkdir(parents=True, exist_ok=True)
+    Path(save_name).parent.mkdir(parents=True, exist_ok=True)
     
     #_____TESTS____
 
-    if not USE_SAVED:
+    if not USE_SAVED and not CONTINUE_FROM_TEMP:
         overall_results={}
         for i, input_path in enumerate(pbar:=tqdm(cube_paths, total=len(cube_paths))):
             # For debugging
@@ -158,10 +222,14 @@ if __name__ == '__main__':
                         pbar.set_description(f'{test=} | {array_id=} | {crf=} | {bits=}')
 
                         #Skip bits that are not possible for a given codec
-                        if test != 'JP2OpenJPEG':
+                        if 'libx265' in test or 'vp9' in test:
                             if bits not in [8,10,12]: continue
-                        else:
+                        elif 'hevc_nvenc' in test:
+                            if bits not in [16]: continue
+                        elif 'JP2OpenJPEG' in test:
                             if bits not in [8,16]: continue
+                        else:
+                            raise AssertionError(f'Unknown test / codec: {test}')
 
                         if DATASET == 'deepextremes':
                             conversion_rules= {
@@ -217,8 +285,28 @@ if __name__ == '__main__':
                 #For some longer tests, just make sure that we don't lose everything...
                 pickle.dump(overall_results, open('results_temp.pkl', 'wb'))
 
-        #______SAVE DATA_____
-
+    #______SAVE DATA_____    
+            
+    if not USE_SAVED or CONTINUE_FROM_TEMP:
+        if CONTINUE_FROM_TEMP:
+            if DATASET == 'deepextremes':
+                conversion_rules= {
+                    'rgb': ( ('B04','B03','B02'), ('time','x','y')),
+                    }
+            elif DATASET == 'dynamicearthnet':
+                conversion_rules= {
+                    'bands': (['R', 'G', 'B', 'NIR'], ('time', 'y', 'x')),
+                    }
+            elif DATASET == 'custom':
+                conversion_rules= {
+                    'all': ('custom_bands', ('time', 'x', 'y')),
+                    }
+            elif DATASET == 'era5':
+                conversion_rules= {
+                    'temp': ('temperature', ('time', 'longitude', 'latitude', 'level'),)
+                    }
+            overall_results= pickle.load(open('results_temp.pkl', 'rb'))
+            
         #We will create a dict only with metric values and convert it to pandas with multiindex
         results_metrics={}
         for cube, cube_results in overall_results.items():
@@ -323,7 +411,7 @@ if __name__ == '__main__':
                                 'libx265 (PCA - 12 bands)': colors[2], 'JP2OpenJPEG':colors[6]}[test] #colors[c_index]
 
                         #Ensure compression_values is sorted
-                        sorted_indices= np.argsort(compression_values)#[-len(metric_values):]
+                        sorted_indices= np.argsort(compression_values)[-len(metric_values):]
                         compression_values_sorted= compression_values_plot[sorted_indices]
                         metric_values_sorted= metric_values[sorted_indices]
 
@@ -338,12 +426,14 @@ if __name__ == '__main__':
                         c_index+= 1
                     except Exception as e:
                         print(f'Error processing {test=}, {video=}, {metric=}, {bits=}: {e}')
-                        if 'index' in str(e): raise e
+                        if 'index' in str(e): 
+                            if DEBUG: 
+                                breakpoint()
 
         # if metric not in ['time']: 
         #     ax.axhline(metric_values[0], color='darkred', linestyle='--', label='uint8 discretization limit')
         if i==0: ax.legend(ncol=2)
 
     ax.set_xlabel(x_label)
-    plt.savefig(f'./examples/{save_name}_{x_label.lower().replace(" ","_")}.png', dpi=200, bbox_inches='tight')
+    plt.savefig(f'{save_name}_{x_label.lower().replace(" ","_")}.png', dpi=200, bbox_inches='tight')
     plt.show()

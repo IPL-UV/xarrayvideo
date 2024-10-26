@@ -90,7 +90,7 @@ def to_video(dataset_in_path, dataset_out_path, images_out_path, lossy_params,
 if __name__ == '__main__':
     #Set parameters
     dataset_in_path= Path('/scratch/users/databases/deepextremes/deepextremes-minicubes/full')
-    dataset_out_path= Path('/scratch/users/databases/deepextremes-video')
+    dataset_out_path= Path('/scratch/users/databases/deepextremes-video-XXpsnr')
     images_out_path= Path('./deepextremes_images')
     lossy_params = [
                      {'c:v': 'libx265',
@@ -104,17 +104,17 @@ if __name__ == '__main__':
                       'crf': 7,
                       'tune': 'psnr',
                      }
-                    ][1] #Choose the params
+                    ][0] #Choose the params
     lossless_params= { 'c:v':'ffv1' }
 
     conversion_rules= {
         #Sets of 3 channels are the most efficient for lossy compression
-        'rgb': ( ('B04','B03','B02'), ('time','x','y'), 0, lossy_params, 12),
-        'ir3': ( ('B8A','B06','B05'), ('time','x','y'), 0, lossy_params, 12),
+        'rgb': ( ('B04','B03','B02'), ('time','y','x'), 0, lossy_params, 12),
+        'ir3': ( ('B8A','B06','B05'), ('time','y','x'), 0, lossy_params, 12),
 
         # Compressing 1,3, or 4 channels losslessly is efficient
         'scl': ( 'SCL', ('time','x','y'), 0, lossless_params, 8),
-        'cm': ( 'cloudmask_en', ('time','x','y'), 0, lossless_params, 8),
+        'cm': ( 'cloudmask_en', ('time','y','x'), 0, lossless_params, 8),
         }
     files= list(dataset_in_path.glob('*/*.zarr'))
     debug= False

@@ -18,17 +18,17 @@ from .metrics import SA, SNR, SSIM
 
 #Globals
 #Codecs currently supported
-VIDEO_CODECS= ['libx264', 'libx265', 'vp9', 'ffv1'] #ffmpeg
+VIDEO_CODECS= ['libx264', 'libx265', 'vp9', 'ffv1', 'hevc_nvenc'] #ffmpeg
 IMAGE_CODECS= ['JP2OpenJPEG'] #gdal
 EXTENSIONS= ['.mkv', '.jp2']
-TRUTHY= (1, '1', 'true', True, 'True', 'YES', 'yes')
+TRUTHY= (1, '1', 'true', True, 'True', 'YES', 'yes', 'TRUE')
 METRICS_MAX_N= 1e8 #Use sampling for metric computation if N_elements is above this number
 
 def get_file_fmt(params):
     'Infer optimal file extension from codec name'
-    if 'c:v' in params.keys() and params['c:v'] in ['libx264', 'libx265', 'vp9', 'ffv1']:
+    if 'c:v' in params.keys() and params['c:v'] in VIDEO_CODECS:
         return '.mkv'
-    elif 'codec' in params.keys() and params['codec'] == 'JP2OpenJPEG':
+    elif 'codec' in params.keys() and params['codec'] in IMAGE_CODECS:
         return '.jp2'
     # elif params['codec'] == 'jpegxl':
     #     return '.jxl'
@@ -46,7 +46,7 @@ def get_compression(params):
     
     if 'c:v' in params.keys() and params['c:v'] in ['libx264']:
         return 'lossy'
-    if 'c:v' in params.keys() and params['c:v'] in ['libx265']:
+    if 'c:v' in params.keys() and params['c:v'] in ['libx265', 'hevc_nvenc']:
         return 'lossy' if 'x265-params' in params.keys() and \
                'lossless=1' in str(params['x265-params']) else 'lossy'
     elif 'c:v' in params.keys() and params['c:v'] in ['vp9']:
@@ -75,13 +75,14 @@ def get_pix_fmt(params, channels, bits):
         endianness= 'le'
 
     #Select optimal pixel format
-    if params['c:v'] in ['libx264', 'libx265', 'vp9']:
+    if params['c:v'] in ['libx264', 'libx265', 'vp9', 'hevc_nvenc']:
         input_pix_fmt= 'gbrp' #Input / Output
         req_pix_fmt= 'yuv444p' #Video 
         
         if bits == 8: pass
         elif (bits == 10 and params['c:v'] in ['libx264', 'libx265', 'vp9'] or
-              bits == 12 and params['c:v'] in ['libx265', 'vp9']):
+              bits == 12 and params['c:v'] in ['libx265', 'vp9'] or
+              bits == 16 and params['c:v'] in ['hevc_nvenc']):
             input_pix_fmt+= f'{bits}{endianness}'
             req_pix_fmt+= f'{bits}{endianness}'
         else:
@@ -120,7 +121,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                  output_path='./', fmt='auto', loglevel='quiet', exceptions='raise', 
                  verbose=True, nan_fill=None, all_zeros_is_nan=True, save_dataset=True):
     '''
-        Takes an xarray Dataset as input, and produces an xarray dataset as output, where some
+        Takes an xarray Dataset as input, and creates an xarray dataset as output, where some
         variables have been saved as video files (with some meta info for reading them back).
         
         Returns a dictionary of results with first level keys being conversion_rules.keys() and path,
@@ -269,7 +270,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
             metadata['VERSION']= '0.2'
             metadata['BANDS']= str(bands) if len(coord_names) != 4 else str([base_band])
             metadata['CHANNELS']= 3 #Always 3 now
-            metadata['COORDS_DIMS']= str(coords)
+            metadata['COORDS_DIMS']= str(coord_names)
             metadata['ATTRS']= str(attrs)
             metadata['FRAMES']= str(array.shape[0])
             metadata['RANGE']= np2str(value_range)
@@ -369,8 +370,8 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                 
                 assert array_comp.shape == array_orig.shape, f'{array_comp.shape=} != {array_orig.shape=}'
                 
-                if normalized:
-                    if not use_pca: 
+                if normalized or compression == 'lossy':
+                    if not use_pca and normalized: 
                         array_comp= denormalize(array_comp, minmax=value_range, bits=bits)
                     
                     #Plot last frame
@@ -463,7 +464,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
     return results
 
 #Backwards function
-def video2xarray(input_path, array_id, exceptions='raise', x_name=None, y_name=None, transpose=False):
+def video2xarray(input_path, array_id, exceptions='raise'):
     #To path
     path= Path(input_path)
     
@@ -515,14 +516,6 @@ def video2xarray(input_path, array_id, exceptions='raise', x_name=None, y_name=N
         bits= int(meta_info['BITS'])
         dr_params_str= meta_info['PCA_PARAMS']
         use_pca= dr_params_str not in ['None', None]
-        
-        #TODO: I'm not yet sure why, but saving the video sometimes transposes x and y
-        if transpose:
-            assert x_name is not None and y_name is not None, \
-                f'If {transpose=}, {x_name=} and {y_name=} cannot be None. '+\
-                f'They must be the name of the coordinates wrt which we will do the transpose.'
-            x_pos, y_pos= coords_dims.index(x_name), coords_dims.index(y_name)
-            coords_dims[x_pos], coords_dims[y_pos]= y_name, x_name
 
         #Rescale array
         if normalized:
@@ -570,7 +563,7 @@ def get_recipe(xarr, t='time', x='longitude', y='latitude', c='level', variables
     '''
     lossy_params= {
         'c:v': 'libx265', 'preset': 'medium', 'crf': [0], 
-        'x265-params': 'qpmin=0:qpmax=0.001:psy-rd=0:psy-rdoq=0',
+        'x265-params': 'qpmin=0:qpmax=0.01:psy-rd=0:psy-rdoq=0',
         }
     lossless_params= {
         'c:v': 'ffv1',
