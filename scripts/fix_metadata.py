@@ -1,7 +1,7 @@
 '''
 Fixes a bug I had with xarray2video when creating the deepextremes dataset.
-Now the buf is fixed, and this fix should no longer be needed.
-But I leave it in case we want to modify the metadata of a dataset for whatever reason.
+Now the bug is fixed, and this fix should no longer be needed.
+But I leave it here in case we want to modify the metadata of a dataset for whatever reason.
 '''
 import ffmpeg
 from pathlib import Path
@@ -11,7 +11,7 @@ import tempfile
 
 if __name__ == '__main__':
     # Define the base directory where the .mkv files are located
-    base_dir = Path('/scratch/users/databases/deepextremes-video')
+    base_dir = Path('/scratch/users/databases/deepextremes-video-XXpsnr')
 
     # Get all the .mkv files in the directory
     mkv_files = list(base_dir.glob('*/*.mkv'))

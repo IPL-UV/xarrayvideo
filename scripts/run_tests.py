@@ -3,7 +3,7 @@ Examples:
 python scripts/run_tests.py --dataset deepextremes --rules_name 7channels
 python scripts/run_tests.py --dataset dynamicearthnet --rules_name 4channels
 python scripts/run_tests.py --dataset custom --rules_name 11channels
-python scripts/run_tests.py --dataset era5 --rules_name temperature
+python scripts/run_tests.py --dataset era5 --rules_name all
 '''
 
 import xarray as xr
@@ -89,8 +89,8 @@ if __name__ == '__main__':
         dataset_in_path= Path('/scratch/users/databases/deepextremes/deepextremes-minicubes/full')
         cube_paths= np.array(list(dataset_in_path.glob('*/*.zarr'))) #'*/*.zarr'
         rng.shuffle(cube_paths)
-        cube_paths= cube_paths[:12]
-    if DATASET == 'dynamicearthnet':
+        cube_paths= cube_paths[:10]
+    elif DATASET == 'dynamicearthnet':
         #Take N random cubes
         dataset_in_path= Path('/scratch/users/databases/dynamicearthnet-xarray')
         cube_paths= np.array(list(dataset_in_path.glob('*.nc')))
@@ -105,10 +105,6 @@ if __name__ == '__main__':
         raise RuntimeError(f'Unknown {DATASET=}')
 
     #Define all tests
-    n_bits= [16,12,10,8] #[8,10,12,16], [12, 16]
-    tests= ['JP2OpenJPEG', 'libx265', 'vp9']
-    # tests= ['libx265', 'libx265 (PCA)', 'libx265 (PCA - 9 bands)', 'JP2OpenJPEG']
-    # tests= ['libx265', 'libx265 (PCA)', 'libx265 (PCA - 12 bands)', 'JP2OpenJPEG'] #'libx265',   'libx265 (PCA)'
     crfs= ['Best','Very high','High','Medium','Low','Very low']# + ['Very low 2', 'Very low 3'] 
 
     #x265 config
@@ -157,11 +153,20 @@ if __name__ == '__main__':
       ]
 
     #JPEG200 params
-    jpeg2000_quality_list= [100, 80, 35, 15, 5, 1] #[100, 100, 75, 35, 15, 5, 3, 1]
+    if DATASET == 'era5':
+        jpeg2000_quality_list= [100, 25, 5, 1, 0.25, 0.05][::-1] #[100, 100, 75, 35, 15, 5, 3, 1]
+    else:
+        jpeg2000_quality_list= [100, 80, 35, 15, 5, 1] #[100, 100, 75, 35, 15, 5, 3, 1]
     jpeg2000_params= [ {'codec': 'JP2OpenJPEG', 'QUALITY': str(jpeg2000_quality_list[i]), 
                         'REVERSIBLE': 'YES' if i==0 else 'NO', 'YCBCR420':'NO'} for i in range(6)]
 
-    codec_params= dict(zip(tests, [jpeg2000_params, x265_params, vp9_params]))
+    n_bits= [16,12,10,8] #[8,10,12,16], [12, 16]
+    tests= ['JP2OpenJPEG', 'libx265', 'vp9']
+    # tests= ['libx265', 'libx265 (PCA)', 'libx265 (PCA - 9 bands)', 'JP2OpenJPEG']
+    # tests= ['libx265', 'libx265 (PCA)', 'libx265 (PCA - 12 bands)', 'JP2OpenJPEG']
+    
+    codec_params= dict(zip(tests, [jpeg2000_params, x265_params]))
+    # codec_params= dict(zip(tests, [jpeg2000_params, x265_params, vp9_params]))
     # codec_params= dict(zip(tests, [x265_params, x265_params_PCA, x265_params_PCA, jpeg2000_params]))
 
     metrics_keep= ['compression', 'psnr', 'mse', 'bpppb', 'exp_sa', 'time', 'd_time', 'ssim']
@@ -224,6 +229,7 @@ if __name__ == '__main__':
                         #Skip bits that are not possible for a given codec
                         if 'libx265' in test or 'vp9' in test:
                             if bits not in [8,10,12]: continue
+                            #if 'vp9' in test and bits == 8: continue #this combination hangs ffmpeg for some reason
                         elif 'hevc_nvenc' in test:
                             if bits not in [16]: continue
                         elif 'JP2OpenJPEG' in test:
@@ -251,11 +257,11 @@ if __name__ == '__main__':
                         elif DATASET == 'era5':
                             conversion_rules= {
                             # 'wind': ( ('10m_u_component_of_wind', '10m_v_component_of_wind', '10m_wind_speed'), 
-                            #           ('time', 'longitude', 'latitude'), False, param, bits),
-                            # 'relative_humidity': ('relative_humidity', 
-                            #                 ('time', 'longitude', 'latitude', 'level'), False, param, bits),
-                            # 'wind_speed': ('wind_speed', 
-                            #               ('time', 'longitude', 'latitude', 'level'), False, param, bits),
+                                      # ('time', 'longitude', 'latitude'), False, param, bits),
+                            'relative_humidity': ('relative_humidity', ('time', 'longitude', 'latitude', 'level'),
+                               13 if '(PCA)' in test else 12 if '(PCA - 12 bands)' in test else False, param, bits),
+                            'wind_speed': ('wind_speed', ('time', 'longitude', 'latitude', 'level'), 
+                               13 if '(PCA)' in test else 12 if '(PCA - 12 bands)' in test else False, param, bits),
                             'temp': ('temperature', ('time', 'longitude', 'latitude', 'level'), 
                                13 if '(PCA)' in test else 12 if '(PCA - 12 bands)' in test else False, param, bits),
                             # 'wind_u': ('u_component_of_wind', ('time', 'longitude', 'latitude', 'level'), 
