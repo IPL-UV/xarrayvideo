@@ -1,8 +1,9 @@
 '''
 Examples:
-python scripts/run_tests.py --dataset deepextremes --rules_name 7channels
-python scripts/run_tests.py --dataset dynamicearthnet --rules_name 4channels
-python scripts/run_tests.py --dataset custom --rules_name 11channels
+python scripts/run_tests.py --dataset dynamicearthnet --rules_name 4channels2
+python scripts/run_tests.py --dataset dynamicearthnet --rules_name 4channels16
+python scripts/run_tests.py --dataset deepextremes --rules_name gapfill3
+python scripts/run_tests.py --dataset custom --rules_name pca
 python scripts/run_tests.py --dataset era5 --rules_name all
 '''
 
@@ -31,6 +32,99 @@ import statsmodels.api as sm
 rng= np.random.default_rng(seed=42)
 
 import argparse
+
+def reorder_legend_items(handles, labels, ncols):
+    """
+    Reorders legend handles and labels to fill from left to right.
+    
+    Args:
+        handles: List of legend handles
+        labels: List of legend labels
+        ncols: Number of columns desired
+    
+    Returns:
+        tuple: (reordered_handles, reordered_labels)
+    """
+    # First, let's ensure we have the same number of handles and labels
+    n_items = len(handles)
+    if n_items != len(labels):
+        print(f"Warning: Number of handles ({n_items}) doesn't match number of labels ({len(labels)})")
+    
+    # Print original items for debugging
+    print("Original items:", labels)
+    
+    nrows = (n_items + ncols - 1) // ncols
+    
+    # Create the reordered lists
+    reordered_handles = []
+    reordered_labels = []
+    
+    # Fill row by row
+    for col in range(ncols):
+        for row in range(nrows):
+            idx = col + row * ncols
+            if idx < n_items:
+                reordered_handles.append(handles[idx])
+                reordered_labels.append(labels[idx])
+    
+    # Print reordered items for debugging
+    print("Reordered items:", reordered_labels)
+    print(f"Original count: {n_items}, Reordered count: {len(reordered_handles)}")
+    
+    return reordered_handles, reordered_labels
+
+def get_conversion_rules(dataset, test, param, bits, **kwargs):
+    if dataset == 'deepextremes':
+        if test == 'ffv1':
+            conversion_rules= {
+                # '7 bands': ( bands, ('time','x','y'), 
+                #             len(bands) if 'PCA' in test else False, param, bits),
+                # 'rgb': ( ('B04','B03','B02'), ('time','y','x'), False, param, bits),
+                # 'ir3': ( ('B8A','B06','B05'), ('time','y','x'), False, param, bits),
+                'masks': ( ('SCL', 'cloudmask_en', 'invalid'), ('time','y','x'), 0, param, bits),
+                }
+        elif test == 'default':
+             conversion_rules= {
+                # '7 bands': ( bands, ('time','x','y'), 
+                #             len(bands) if 'PCA' in test else False, param, bits),
+                'rgb': ( ('B04','B03','B02'), ('time','y','x'), False, param, bits),
+                'ir3': ( ('B8A','B06','B05'), ('time','y','x'), False, param, bits),
+                'masks': ( ('SCL', 'cloudmask_en', 'invalid'), ('time','y','x'), 0, param, bits),
+                }  
+        else:
+             conversion_rules= {
+                # '7 bands': ( bands, ('time','x','y'), 
+                #             len(bands) if 'PCA' in test else False, param, bits),
+                'rgb': ( ('B04','B03','B02'), ('time','y','x'), False, param, bits),
+                'ir3': ( ('B8A','B06','B05'), ('time','y','x'), False, param, bits),
+                # 'masks': ( ('SCL', 'cloudmask_en', 'invalid'), ('time','y','x'), 0, param, bits),
+                }
+    elif dataset == 'dynamicearthnet':
+        conversion_rules= {
+            'bands': (['R', 'G', 'B', 'NIR'], ('time', 'y', 'x'), False, param, bits),
+            }
+    elif dataset == 'custom':
+        conversion_rules= {
+            # 'rgb': (['B4', 'B3', 'B2'], ('time', 'x', 'y'), False, param, bits),
+            'all': (kwargs['bands'], ('time', 'y', 'x'), 
+                    9 if '(PCA - 9 bands)' in test else False, param, bits),
+            }
+    elif dataset == 'era5':
+        conversion_rules= {
+        # 'wind': ( ('10m_u_component_of_wind', '10m_v_component_of_wind', '10m_wind_speed'), 
+                  # ('time', 'longitude', 'latitude'), False, param, bits),
+        'relative_humidity': ('relative_humidity', ('time', 'longitude', 'latitude', 'level'),
+           13 if '(PCA)' in test else 12 if '(PCA - 12 bands)' in test else False, param, bits),
+        'wind_speed': ('wind_speed', ('time', 'longitude', 'latitude', 'level'), 
+           13 if '(PCA)' in test else 12 if '(PCA - 12 bands)' in test else False, param, bits),
+        'temp': ('temperature', ('time', 'longitude', 'latitude', 'level'), 
+           13 if '(PCA)' in test else 12 if '(PCA - 12 bands)' in test else False, param, bits),
+        # 'wind_u': ('u_component_of_wind', ('time', 'longitude', 'latitude', 'level'), 
+        #    13 if '(PCA)' in test else 12 if '(PCA - 12 bands)' in test else False, param, bits),
+            }
+    else:
+        raise RuntimeError(f'Unknown {dataset=}')
+    return conversion_rules
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Process command-line options")
@@ -84,12 +178,14 @@ if __name__ == '__main__':
     DATASET= args.dataset #One of ['deepextremes', 'dynamicearthnet', 'custom', 'era5']
     RULES_NAME= args.rules_name #'11channels', '7channels', etc., just for save name
 
+    bands= None
     if DATASET == 'deepextremes':
         #Take N random cubes
         dataset_in_path= Path('/scratch/users/databases/deepextremes/deepextremes-minicubes/full')
         cube_paths= np.array(list(dataset_in_path.glob('*/*.zarr'))) #'*/*.zarr'
         rng.shuffle(cube_paths)
         cube_paths= cube_paths[:10]
+        bands= ['B04','B03','B02','B8A','B07','B06','B05']
     elif DATASET == 'dynamicearthnet':
         #Take N random cubes
         dataset_in_path= Path('/scratch/users/databases/dynamicearthnet-xarray')
@@ -98,6 +194,7 @@ if __name__ == '__main__':
         cube_paths= cube_paths[:5]
     elif DATASET == 'custom':
         cube_paths= [Path(f'../cubos_julio/cubo{i}_pickle') for i in range(1,5)]
+        bands= ['B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B11', 'B12']
     elif DATASET == 'era5':
         cube_paths= [Path(
         '../since_2022-07-01_2022-07-01_1959-2023_01_10-wb13-6h-1440x721_with_derived_variables.zarr')]    
@@ -160,14 +257,15 @@ if __name__ == '__main__':
     jpeg2000_params= [ {'codec': 'JP2OpenJPEG', 'QUALITY': str(jpeg2000_quality_list[i]), 
                         'REVERSIBLE': 'YES' if i==0 else 'NO', 'YCBCR420':'NO'} for i in range(6)]
 
-    n_bits= [16,12,10,8] #[8,10,12,16], [12, 16]
-    tests= ['JP2OpenJPEG', 'libx265', 'vp9']
-    # tests= ['libx265', 'libx265 (PCA)', 'libx265 (PCA - 9 bands)', 'JP2OpenJPEG']
+    n_bits= [16] #[8,10,12,16] #[8,10,12,16], [12, 16]
+    tests= [ 'JP2OpenJPEG'] #, 'libx265', 'vp9']
+    # tests= ['ffv1']
+    # tests= ['libx265 (PCA - 9 bands)', 'libx265 (PCA - all bands)', 'libx265', 'vp9', 'JP2OpenJPEG']
     # tests= ['libx265', 'libx265 (PCA)', 'libx265 (PCA - 12 bands)', 'JP2OpenJPEG']
     
-    codec_params= dict(zip(tests, [jpeg2000_params, x265_params]))
+    # codec_params= dict(zip(tests, [ [{'c:v':'ffv1'}], x265_params, jpeg2000_params, vp9_params]))
     # codec_params= dict(zip(tests, [jpeg2000_params, x265_params, vp9_params]))
-    # codec_params= dict(zip(tests, [x265_params, x265_params_PCA, x265_params_PCA, jpeg2000_params]))
+    codec_params= dict(zip(tests, [x265_params_PCA, x265_params_PCA, x265_params, vp9_params, jpeg2000_params]))
 
     metrics_keep= ['compression', 'psnr', 'mse', 'bpppb', 'exp_sa', 'time', 'd_time', 'ssim']
     
@@ -193,6 +291,12 @@ if __name__ == '__main__':
 
                 #Align
                 #TODO: Alignment is not working properly as of now
+                
+                #Perform simple gap filling
+                #Do not gapfill clouds, otherise use 'cloudmask_en'
+                minicube= gap_fill(minicube, fill_bands=bands, mask_band=None,
+                                  fill_values=[1, 3, 4], method='last_value', new_mask='invalid', 
+                                  coord_names=('time', 'variable', 'y', 'x'))
 
             elif DATASET == 'dynamicearthnet':
                 minicube= xr.open_dataset(input_path)
@@ -202,7 +306,7 @@ if __name__ == '__main__':
                 with open(input_path, 'rb') as file:
                     data = pickle.load(file)
                 minicube= data.to_dataset(dim='band')
-                custom_bands= list(minicube.data_vars)
+                bands= list(minicube.data_vars)
                 array_id= file.name
 
             elif DATASET == 'era5':
@@ -234,43 +338,13 @@ if __name__ == '__main__':
                             if bits not in [16]: continue
                         elif 'JP2OpenJPEG' in test:
                             if bits not in [8,16]: continue
+                        elif 'ffv1' in test:
+                            if bits not in [8]: continue
                         else:
                             raise AssertionError(f'Unknown test / codec: {test}')
 
-                        if DATASET == 'deepextremes':
-                            conversion_rules= {
-                                # '7 bands': ( bands, ('time','x','y'), 
-                                #             len(bands) if 'PCA' in test else False, param, bits),
-                                'rgb': ( ('B04','B03','B02'), ('time','x','y'), False, param, bits),
-                                # 'ir3': ( ('B8A','B06','B05'), ('time','x','y'), False, param, bits),
-                                }
-                        elif DATASET == 'dynamicearthnet':
-                            conversion_rules= {
-                                'bands': (['R', 'G', 'B', 'NIR'], ('time', 'y', 'x'), False, param, bits),
-                                }
-                        elif DATASET == 'custom':
-                            conversion_rules= {
-                                # 'rgb': (['B4', 'B3', 'B2'], ('time', 'x', 'y'), False, param, bits),
-                                'all': (custom_bands, ('time', 'x', 'y'), 
-                                        9 if 'PCA' in test else False, param, bits),
-                                }
-                        elif DATASET == 'era5':
-                            conversion_rules= {
-                            # 'wind': ( ('10m_u_component_of_wind', '10m_v_component_of_wind', '10m_wind_speed'), 
-                                      # ('time', 'longitude', 'latitude'), False, param, bits),
-                            'relative_humidity': ('relative_humidity', ('time', 'longitude', 'latitude', 'level'),
-                               13 if '(PCA)' in test else 12 if '(PCA - 12 bands)' in test else False, param, bits),
-                            'wind_speed': ('wind_speed', ('time', 'longitude', 'latitude', 'level'), 
-                               13 if '(PCA)' in test else 12 if '(PCA - 12 bands)' in test else False, param, bits),
-                            'temp': ('temperature', ('time', 'longitude', 'latitude', 'level'), 
-                               13 if '(PCA)' in test else 12 if '(PCA - 12 bands)' in test else False, param, bits),
-                            # 'wind_u': ('u_component_of_wind', ('time', 'longitude', 'latitude', 'level'), 
-                            #    13 if '(PCA)' in test else 12 if '(PCA - 12 bands)' in test else False, param, bits),
-                                }
-                        else:
-                            raise RuntimeError(f'Unknown {DATASET=}')
-
                         #Run with compute_stats
+                        conversion_rules= get_conversion_rules(DATASET, test, param, bits, bands=bands)
                         try:
                             results= xarray2video(minicube, array_id, conversion_rules,
                                                    output_path=Path('./testing/'), compute_stats=True,
@@ -295,22 +369,7 @@ if __name__ == '__main__':
             
     if not USE_SAVED or CONTINUE_FROM_TEMP:
         if CONTINUE_FROM_TEMP:
-            if DATASET == 'deepextremes':
-                conversion_rules= {
-                    'rgb': ( ('B04','B03','B02'), ('time','x','y')),
-                    }
-            elif DATASET == 'dynamicearthnet':
-                conversion_rules= {
-                    'bands': (['R', 'G', 'B', 'NIR'], ('time', 'y', 'x')),
-                    }
-            elif DATASET == 'custom':
-                conversion_rules= {
-                    'all': ('custom_bands', ('time', 'x', 'y')),
-                    }
-            elif DATASET == 'era5':
-                conversion_rules= {
-                    'temp': ('temperature', ('time', 'longitude', 'latitude', 'level'),)
-                    }
+            conversion_rules= get_conversion_rules(DATASET, 'default', None, None, bands=bands)
             overall_results= pickle.load(open('results_temp.pkl', 'rb'))
             
         #We will create a dict only with metric values and convert it to pandas with multiindex
@@ -341,7 +400,21 @@ if __name__ == '__main__':
     
 
     #______PLOT______
+    PLOT= True
+    SINGLE_FIG= False
     
+    import matplotlib.pyplot as plt
+    import matplotlib.font_manager as fm
+
+    # Specify the path to the ttf file directly
+    font_path = './results/cmunrm.ttf' 
+    fm.fontManager.addfont(font_path)  # Explicitly add the font to font manager
+    custom_font = fm.FontProperties(fname=font_path)
+
+    # Set as default font - use the exact font name
+    plt.rcParams['font.family'] = 'CMU Serif'  # The actual font family name
+    # No need to set font.sans-serif since CMU Serif is a serif font
+
     #Colors?
     # cmap= plt.get_cmap('gist_rainbow')
     # colors= [cmap(value) for value in np.linspace(0, 1, 15)] #0->1, 15 values
@@ -351,95 +424,336 @@ if __name__ == '__main__':
     #Load results?
     if USE_SAVED: 
         results_df= pd.read_pickle(f'{save_name}.pkl')
+        conversion_rules= get_conversion_rules(DATASET, 'default', None, None, bands=bands)
 
     # x_label= 'Compression percentage' #One of {'Compression percentage', 'Compression factor', 'bpppb'}
     x_label= 'bpppb'
     c_index= 0 #Color index, go through the colormap
-    # tests_plot= ['libx265', 'libx265 (PCA)', 'libx265 (PCA - 12 bands)', 'JP2OpenJPEG']
-    tests_plot= ['libx265', 'vp9', 'JP2OpenJPEG']
+    # tests_plot= ['libx265', 'libx265 (PCA - all bands)', 'libx265 (PCA - 9 bands)', 'vp9', 'JP2OpenJPEG']
+    tests_plot= ['libx265',  'vp9', 'JP2OpenJPEG']
     metrics_plot= {'psnr':'PSNR (dB)', 
                    #'mse':'MSE', #We disable MSE because it is very difficult to plot
                    'ssim':'SSIM', 'exp_sa':'SA (radians)', 
                    'time': 'Compression time (s)', 'd_time': 'Decompression time (s)'}
     metrics_plot= {m:label for m, label in metrics_plot.items() if m in metrics_keep}
-    f, axes= plt.subplots(len(metrics_plot),1, figsize=(6.25*1.7,9.5*1.7))
-    for i, ((metric, y_label), ax) in enumerate(zip(metrics_plot.items(), axes.flatten())):
-        ax.set_ylabel(y_label)
-        c_index= 0
 
-        if y_label == 'MSE':
-            ax.set_yscale('log')
-            # ax.yaxis.set_major_formatter(mtick.ScalarFormatter())
-            # ax.yaxis.set_minor_formatter(mtick.ScalarFormatter())
-            # ax.tick_params(axis='y', which='minor', labelsize=6) 
-            ax.set_ylim(1e-7, 5e-3)  # Set y limits for MSE to avoid extreme values
-        elif y_label == 'SSIM':
-            ax.set_ylim(0.98, 1.0)  # Adjust SSIM y-limits for better separation
-        elif y_label == 'SA (radians)':
-            ax.set_ylim(0., 0.075)
+    if PLOT:
+        if SINGLE_FIG:
+            f, axes= plt.subplots(len(metrics_plot),1, figsize=(6.25*1.7,9.5*1.7))
+            for i, ((metric, y_label), ax) in enumerate(zip(metrics_plot.items(), axes.flatten())):
+                ax.set_ylabel(y_label)
+                c_index= 0
 
-        if x_label == 'Compression factor':
-            #If using a factor for compression
-            ax.set_xscale('log')
-            ax.xaxis.set_major_formatter(mtick.ScalarFormatter())
-            ax.xaxis.set_minor_formatter(mtick.ScalarFormatter())
-            ax.tick_params(axis='x', which='minor', labelsize=6) 
-        elif x_label == 'Compression percentage':
-            #If using percentage for compression
-            ax.xaxis.set_major_formatter(mtick.PercentFormatter())
-            start, end = ax.get_xlim()
-        elif x_label == 'bpppb':
-            ax.set_xscale('log')
-            ax.xaxis.set_major_formatter(mtick.FormatStrFormatter('%.2f'))
-            ax.xaxis.set_minor_formatter(mtick.FormatStrFormatter('%.2f'))
-            ax.tick_params(axis='x', which='minor', labelsize=6) 
+                if y_label == 'MSE':
+                    ax.set_yscale('log')
+                    # ax.yaxis.set_major_formatter(mtick.ScalarFormatter())
+                    # ax.yaxis.set_minor_formatter(mtick.ScalarFormatter())
+                    # ax.tick_params(axis='y', which='minor', labelsize=6) 
+                    ax.set_ylim(1e-7, 5e-3)  # Set y limits for MSE to avoid extreme values
+                elif y_label == 'SSIM':
+                    ax.set_ylim(0.98, 1.0)  # Adjust SSIM y-limits for better separation
+                elif y_label == 'psnr':
+                    ax.set_ylim(None, 100)  # Adjust SSIM y-limits for better separation
+                elif y_label == 'SA (radians)':
+                    ax.set_ylim(0., 0.075)
+
+                if x_label == 'Compression factor':
+                    #If using a factor for compression
+                    ax.set_xscale('log')
+                    ax.xaxis.set_major_formatter(mtick.ScalarFormatter())
+                    ax.xaxis.set_minor_formatter(mtick.ScalarFormatter())
+                    ax.tick_params(axis='x', which='minor', labelsize=6) 
+                elif x_label == 'Compression percentage':
+                    #If using percentage for compression
+                    ax.xaxis.set_major_formatter(mtick.PercentFormatter())
+                    start, end = ax.get_xlim()
+                elif x_label == 'bpppb':
+                    ax.set_xscale('log')
+                    ax.xaxis.set_major_formatter(mtick.FormatStrFormatter('%.2f'))
+                    ax.xaxis.set_minor_formatter(mtick.FormatStrFormatter('%.2f'))
+                    ax.tick_params(axis='x', which='minor', labelsize=6) 
+                else:
+                    raise AssertionError(f'Unknown {x_label=}')
+
+                for i_video, video in enumerate(conversion_rules.keys()):
+                    for test in tests_plot:
+                        for bits in n_bits:
+                            try:
+                                data= results_df.xs(test, level='test_name').xs(video, level='video_name').xs(bits, level='bits')
+                                metric_values= data.xs(metric, level='metric').values.flatten()
+                                if x_label == 'Compression factor':
+                                    compression_values= 1/data.xs('compression', level='metric').values.flatten()
+                                elif x_label == 'Compression percentage':
+                                    compression_values= data.xs('compression', level='metric').values.flatten()
+                                elif x_label == 'bpppb':
+                                    compression_values= data.xs('bpppb', level='metric').values.flatten()
+                                else:
+                                    raise AssertionError(f'Unknown {x_label=}')
+                                scatter_kws= {'s': 5, 'alpha': 0.25}
+                                line_kws= {'linestyle': {8:':', 10:'--', 12:'-', 16:'-'}[bits], 'label':f'{video} {bits}bits {test}'}
+                                compression_values_plot= compression_values * (100 if x_label == 'Compression percentage' else 1)
+                                color= {'libx265':colors[0], 'vp9':colors[4], 'libx265 (PCA)':colors[4], 
+                                        'libx265 (PCA - 12 bands)': colors[2], 'JP2OpenJPEG':colors[6]}[test] #colors[c_index]
+
+                                #Ensure compression_values is sorted
+                                sorted_indices= np.argsort(compression_values)[-len(metric_values):]
+                                compression_values_sorted= compression_values_plot[sorted_indices]
+                                metric_values_sorted= metric_values[sorted_indices]
+
+                                #Lowess smoothing
+                                metric_values_smoothed= sm.nonparametric.lowess(metric_values_sorted, compression_values_sorted, 
+                                                                                frac=0.6, return_sorted=False)
+
+                                #Scatter plot and lineplot in separate calls
+                                ax.scatter(compression_values_sorted, metric_values_sorted, color=color, **scatter_kws)
+                                ax.plot(compression_values_sorted, metric_values_smoothed, color=color, **line_kws)
+
+                                c_index+= 1
+                            except Exception as e:
+                                print(f'Error processing {test=}, {video=}, {metric=}, {bits=}: {e}')
+                                if 'index' in str(e): 
+                                    if DEBUG: 
+                                        breakpoint()
+
+                # if metric not in ['time']: 
+                #     ax.axhline(metric_values[0], color='darkred', linestyle='--', label='uint8 discretization limit')
+                if i==0: ax.legend(ncol=2)
+
+            ax.set_xlabel(x_label)
+            plt.savefig(f'{save_name}_{x_label.lower().replace(" ","_")}.png', dpi=200, bbox_inches='tight')
+            plt.show()
+
         else:
-            raise AssertionError(f'Unknown {x_label=}')
+            for i, (metric, y_label) in enumerate(metrics_plot.items()):
+                f, ax= plt.subplots(1, 1, figsize=(3,2.5))
+                ax.set_ylabel(y_label)
+                c_index= 0
 
-        for i_video, video in enumerate(conversion_rules.keys()):
-            for test in tests_plot:
-                for bits in n_bits:
-                    try:
-                        data= results_df.xs(test, level='test_name').xs(video, level='video_name').xs(bits, level='bits')
-                        metric_values= data.xs(metric, level='metric').values.flatten()
-                        if x_label == 'Compression factor':
-                            compression_values= 1/data.xs('compression', level='metric').values.flatten()
-                        elif x_label == 'Compression percentage':
-                            compression_values= data.xs('compression', level='metric').values.flatten()
-                        elif x_label == 'bpppb':
-                            compression_values= data.xs('bpppb', level='metric').values.flatten()
-                        else:
-                            raise AssertionError(f'Unknown {x_label=}')
-                        scatter_kws= {'s': 5, 'alpha': 0.25}
-                        line_kws= {'linestyle': {8:':', 10:'--', 12:'-', 16:'-'}[bits], 'label':f'{video} {bits}bits {test}'}
-                        compression_values_plot= compression_values * (100 if x_label == 'Compression percentage' else 1)
-                        color= {'libx265':colors[0], 'vp9':colors[4], 'libx265 (PCA)':colors[4], 
-                                'libx265 (PCA - 12 bands)': colors[2], 'JP2OpenJPEG':colors[6]}[test] #colors[c_index]
+                if y_label == 'MSE':
+                    ax.set_yscale('log')
+                    # ax.yaxis.set_major_formatter(mtick.ScalarFormatter())
+                    # ax.yaxis.set_minor_formatter(mtick.ScalarFormatter())
+                    # ax.tick_params(axis='y', which='minor', labelsize=6) 
+                    ax.set_ylim(1e-7, 5e-3)  # Set y limits for MSE to avoid extreme values
+                elif y_label == 'SSIM':
+                    ax.set_ylim(0.98, 1.0)  # Adjust SSIM y-limits for better separation
+                elif y_label == 'SA (radians)':
+                    ax.set_ylim(0., 0.075)
+                elif y_label == 'PSNR (dB)':
+                    ax.set_ylim((35, 90))  
 
-                        #Ensure compression_values is sorted
-                        sorted_indices= np.argsort(compression_values)[-len(metric_values):]
-                        compression_values_sorted= compression_values_plot[sorted_indices]
-                        metric_values_sorted= metric_values[sorted_indices]
+                if x_label == 'Compression factor':
+                    #If using a factor for compression
+                    ax.set_xscale('log')
+                    ax.xaxis.set_major_formatter(mtick.ScalarFormatter())
+                    ax.xaxis.set_minor_formatter(mtick.ScalarFormatter())
+                    ax.tick_params(axis='x', which='minor', labelsize=6) 
+                elif x_label == 'Compression percentage':
+                    #If using percentage for compression
+                    ax.xaxis.set_major_formatter(mtick.PercentFormatter())
+                    start, end = ax.get_xlim()
+                elif x_label == 'bpppb':
+                    ax.set_xscale('log')
+                    ax.set_xlim(xmin=0.01, xmax=10.) 
+                    ax.xaxis.set_major_formatter(mtick.FormatStrFormatter('%.2f'))
+                    # ax.xaxis.set_minor_formatter(mtick.FormatStrFormatter('%.2f'))
+                    # ax.tick_params(axis='x', which='minor', labelsize=6) 
+                else:
+                    raise AssertionError(f'Unknown {x_label=}')
 
-                        #Lowess smoothing
-                        metric_values_smoothed= sm.nonparametric.lowess(metric_values_sorted, compression_values_sorted, 
-                                                                        frac=0.6, return_sorted=False)
+                for i_video, video in enumerate(conversion_rules.keys()):
+                    # if 'masks' in video: continue
+                    for test in tests_plot:
+                        for bits in n_bits[::-1]:
+                            try:
+                                data= results_df.xs(test, level='test_name').xs(video, level='video_name').xs(bits, level='bits')
+                                metric_values= data.xs(metric, level='metric').values.flatten()
+                                if x_label == 'Compression factor':
+                                    compression_values= 1/data.xs('compression', level='metric').values.flatten()
+                                elif x_label == 'Compression percentage':
+                                    compression_values= data.xs('compression', level='metric').values.flatten()
+                                elif x_label == 'bpppb':
+                                    compression_values= data.xs('bpppb', level='metric').values.flatten()
+                                else:
+                                    raise AssertionError(f'Unknown {x_label=}')
+                                scatter_kws= {'s': 5, 'alpha': 0.25}
+                                line_kws= {'linestyle': {8:':', 10:'--', 12:'-', 16:'-'}[bits], 'label':f'{video} {bits}bits {test}'}
+                                compression_values_plot= compression_values * (100 if x_label == 'Compression percentage' else 1)
+                                color= {'libx265':colors[0+i_video], 
+                                        'vp9':colors[4+(-1 if i_video == 2 else i_video)], 
+                                        'libx265 (PCA - all bands)':colors[3+i_video], 
+                                        'libx265 (PCA - 12 bands)': colors[2+i_video], 
+                                        'libx265 (PCA - 9 bands)': colors[2+i_video], 
+                                        'ffv1': colors[-1],
+                                        'JP2OpenJPEG':colors[-3+i_video]}[test] #colors[c_index]
 
-                        #Scatter plot and lineplot in separate calls
-                        ax.scatter(compression_values_sorted, metric_values_sorted, color=color, **scatter_kws)
-                        ax.plot(compression_values_sorted, metric_values_smoothed, color=color, **line_kws)
+                                #Ensure compression_values is sorted
+                                sorted_indices= np.argsort(compression_values)[-len(metric_values):]
+                                compression_values_sorted= compression_values_plot[sorted_indices]
+                                metric_values_sorted= metric_values[sorted_indices]
 
-                        c_index+= 1
-                    except Exception as e:
-                        print(f'Error processing {test=}, {video=}, {metric=}, {bits=}: {e}')
-                        if 'index' in str(e): 
-                            if DEBUG: 
-                                breakpoint()
+                                #Lowess smoothing
+                                metric_values_smoothed= sm.nonparametric.lowess(metric_values_sorted, compression_values_sorted, 
+                                                                                frac=0.6, return_sorted=False)
 
-        # if metric not in ['time']: 
-        #     ax.axhline(metric_values[0], color='darkred', linestyle='--', label='uint8 discretization limit')
-        if i==0: ax.legend(ncol=2)
+                                #Scatter plot and lineplot in separate calls
+                                ax.scatter(compression_values_sorted, metric_values_sorted, color=color, **scatter_kws)
+                                ax.plot(compression_values_sorted, metric_values_smoothed, color=color, **line_kws)
 
-    ax.set_xlabel(x_label)
-    plt.savefig(f'{save_name}_{x_label.lower().replace(" ","_")}.png', dpi=200, bbox_inches='tight')
-    plt.show()
+                                # if y_label == 'PSNR (dB)':
+                                #     ax.set_ylim((metric_values_smoothed[0], 100))
+
+                                c_index+= 1
+                            except Exception as e:
+                                print(f'Error processing {test=}, {video=}, {metric=}, {bits=}: {e}')
+                                if 'index' in str(e): 
+                                    if DEBUG: 
+                                        breakpoint()
+
+                # if metric not in ['time']: 
+                #     ax.axhline(metric_values[0], color='darkred', linestyle='--', label='uint8 discretization limit')
+
+                ax.set_xlabel(x_label)
+                plt.savefig(f'{save_name}_{x_label.lower().replace(" ","_")}_{metric}.pdf', dpi=200, bbox_inches='tight')
+
+                if i == 0:
+                    # Extract the legend
+                    ax.legend()
+                    legend = ax.get_legend()
+                    fig2 = plt.figure()
+                    capitalize_first = lambda s: s[0].upper() + s[1:].replace('_', ' ') if s else s
+                    handles = legend.legendHandles
+                    labels = [capitalize_first(t.get_text()) for t in legend.texts]
+                    labels = [l.replace('Relative humidity', 'Rel. humidity') for l in labels]
+                    ncols= {'deepextremes':6, 'dynamicearthnet':3, 'custom':5, 'era5':6}.get(DATASET, 5)
+                    
+                    # Find all indices containing "JP2OpenJPEG"
+                    target_indices = [i for i, label in enumerate(labels) if "8bits JP2OpenJPEG" in label]
+
+                    # Insert empty handles and labels after each target index
+                    # We need to account for the offset as we insert items
+                    offset = 0
+                    for idx in target_indices:
+                        adjusted_idx = idx + offset
+                        handles.insert(adjusted_idx + 1, plt.Line2D([], [], color='none'))  # Empty handle
+                        labels.insert(adjusted_idx + 1, '')  # Empty label
+                        offset += 1  # Increment offset for next insertion
+                    # handles.insert(len(labels), plt.Line2D([], [], color='none'))  # Empty handle
+                    # labels.insert(len(labels), '')  # Empty label
+
+                    reordered_handles, reordered_labels = handles, labels
+                    # reordered_handles, reordered_labels = reorder_legend_items(handles, labels, ncols=ncols)
+                    fig2.legend(
+                        reordered_handles, 
+                        reordered_labels, 
+                        ncols=ncols,
+                        frameon=False,
+                        borderaxespad=0,  # Remove padding between legend and axes
+                        handletextpad=0.5,  # Reduce space between handle and text
+                    )
+                    plt.savefig(f'{save_name}_{x_label.lower().replace(" ","_")}_legend.pdf', dpi=200, bbox_inches='tight', 
+                                pad_inches=0  # Remove padding around the figure
+                               )
+
+    pd.set_option('display.max_rows', None)
+    grouped= results_df.groupby(level=[0,1,2,3,5]).mean() #Group over cube dimension (pos 4)
+    
+    def create_latex_table(df):
+        # Define metric mapping and order
+        metric_mapping = {
+            'bpppb': 'bpppb',
+            'ssim': 'SSIM',
+            'psnr': 'PSNR',
+            'exp_sa': 'SA',
+            'time': '$t_{c}$',
+            'd_time': '$t_{d}$'
+        }
+        metrics_order = ['bpppb', 'ssim', 'psnr', 'exp_sa', 'time', 'd_time']
+        ignore_metrics = ['ssim', 'exp_sa']
+        ignore_videos = [] #['masks']
+        crf_order = ['Best', 'Very high', 'High', 'Medium', 'Low', 'Very low']
+
+        # Get filtered metrics and video names
+        metrics = [m for m in metrics_order if m in df.index.get_level_values('metric').unique()]
+        metrics = [m for m in metrics if m not in ignore_metrics]
+        video_names = sorted(df.index.get_level_values('video_name').unique())
+        video_names = [v for v in video_names if v not in ignore_videos]
+
+        latex_str = """\\begin{table*}[t]
+    \\centering
+    \\caption{Quality comparison of different compression methods}
+    \\label{tab:quality_comparison}
+    \\begin{tabular}{llr"""
+
+        # Add column format for each video/metric combination (all right-aligned)
+        latex_str += "r" * (len(video_names) * len(metrics))
+        latex_str += "}\n\\toprule\n"
+
+        # Add video names spanning multiple columns
+        latex_str += "& & "
+        for video in video_names:
+            latex_str += f"\\multicolumn{{{len(metrics)}}}{{c}}{{{video.replace('_', ' ')}}} "
+            if video != video_names[-1]:
+                latex_str += "& "
+        latex_str += "\\\\\n"
+
+        # Add metric names
+        latex_str += "Test & Bits & Quality"
+        for video in video_names:
+            for metric in metrics:
+                latex_str += f" & {metric_mapping[metric]}"
+        latex_str += "\\\\\n\\midrule\n"
+
+        # Process data
+        current_test = None
+
+        # Get unique combinations and sort them
+        test_names = sorted(df.index.get_level_values('test_name').unique())
+
+        for test_name in test_names:
+            bits_values = sorted(df.xs(test_name, level='test_name').index.get_level_values('bits').unique())
+
+            for bits in bits_values:
+                # Get CRF values for this test_name and bits
+                df_subset = df.xs((test_name, bits), level=('test_name', 'bits'))
+                crf_values = sorted(df_subset.index.get_level_values('crf').unique(),
+                                  key=lambda x: crf_order.index(x) if x in crf_order else len(crf_order))
+
+                # Add midrule if changing test_name
+                if current_test is not None and current_test != test_name:
+                    latex_str += "\\midrule\n"
+
+                for i, crf in enumerate(crf_values):
+                    if i == 0:
+                        latex_str += f"\\multirow{{{len(crf_values)}}}{{*}}{{{test_name.replace('_', ' ')}}} & "
+                        latex_str += f"\\multirow{{{len(crf_values)}}}{{*}}{{{bits}}} & {crf}"
+                    else:
+                        latex_str += f"& & {crf}"
+
+                    # Add values for each video and metric
+                    for video in video_names:
+                        for metric in metrics:
+                            try:
+                                value = df.loc[(metric, video, test_name, bits, crf), 'value']
+                                if metric == 'psnr' and value == 100.:
+                                    formatted_value= "$\infty$"
+                                else:
+                                    formatted_value = f"{value:.3f}" if pd.notnull(value) else ""
+                            except KeyError:
+                                formatted_value = ""
+                            latex_str += f" & {formatted_value}"
+                    latex_str += " \\\\\n"
+
+                current_test = test_name
+
+        # Close LaTeX table
+        latex_str += """\\bottomrule
+    \\end{tabular}
+    \\end{table*}"""
+    
+
+        return latex_str
+
+    # Print LaTeX version
+    latex_output = create_latex_table(grouped)
+    print(latex_output)

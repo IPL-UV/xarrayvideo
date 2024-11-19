@@ -154,7 +154,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                                  f'[n_components], [params], [bits], [min, max]')
             
         try:
-            #Array -> uint8 or uint16, shape: (t, x, y, c)
+            #Array -> uint8 or uint16, shape: (t, y, x, c)
             if len(coord_names) == 3:
                 if isinstance(bands, str): bands= [bands]
                 coords= x[bands[0]].coords.dims

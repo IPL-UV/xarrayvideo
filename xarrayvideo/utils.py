@@ -82,7 +82,7 @@ class DRWrapper:
         nans= np.any(np.isnan(X_flat), axis=-1)
         X_flat[nans]= 0.
         X_pca_flat= self.dr.transform(X_flat)
-        X_flat[nans]= np.nan
+        X_pca_flat[nans]= np.nan
         return np.reshape(X_pca_flat, final_shape)
     
     def inverse_transform(self, Y):
@@ -168,8 +168,8 @@ def to_netcdf(x, *args, **kwargs):
     x= sanitize_xarray(x)
     x.to_netcdf(*args, **kwargs, encoding={var: {'zlib': True} for var in x.variables})
 
-def gap_fill(x:xr.Dataset, fill_bands:List[str], mask_band:str, fill_nans:bool=True, fill_zeros:bool=True,
-             fill_values:Optional[List[int]]=None, new_mask='invalid', coord_names=('time', 'variable', 'x', 'y'),
+def gap_fill(x:xr.Dataset, fill_bands:List[str], mask_band:Optional[str], fill_nans:bool=True, fill_zeros:bool=True,
+             fill_values:Optional[List[int]]=None, new_mask='invalid', coord_names=('time', 'variable', 'y', 'x'),
              method:str='last_value'):
     #Checks
     if coord_names[0] not in ['t', 'time', 'frame']: 
@@ -177,29 +177,51 @@ def gap_fill(x:xr.Dataset, fill_bands:List[str], mask_band:str, fill_nans:bool=T
     
     #Prepare bands array
     x_array= x[fill_bands].to_array()
-    array= x_array.transpose(*coord_names).values # t c x y
+    array= x_array.transpose(*coord_names).values # t c y x
     array_filled= np.zeros_like(array)
     
     #Get gap mask
-    mask= x[[mask_band]].to_array().transpose(*coord_names).values # t 1 x y
+    if mask_band is None:
+        mask_shape= list(array.shape)
+        mask_shape[1]= 1
+        mask= np.zeros(mask_shape, dtype=bool) # t 1 y x
+    else:
+        mask= x[[mask_band]].to_array().transpose(*coord_names).values # t 1 y x
+        
     if fill_values == None:
         fill_mask= mask > 0
     else:
         fill_mask= np.isin(mask, fill_values)
+        
     fill_mask= np.concatenate([fill_mask]*array.shape[1], axis=1) # t c, y x
+    
     if fill_nans: 
         fill_mask|= np.isnan(array)
     axis_cxy= tuple(list(range(len(array.shape)))[1:])
+    
     if fill_zeros: 
         fill_mask|= ~np.any(array, axis=axis_cxy, keepdims=True)
         
     #Perform filling
     if method == 'last_value':
-        #If there is cloud, use previous value, otherwise, use input values
-        array_filled[0]= array[0] #For first timestep, perform no gapfill
-        for t in range(1,array.shape[0]): #iterate over time channel
-                array_filled[t]= np.where(fill_mask[t], array_filled[t-1], array[t])
-                # array_filled[t]= np.where(fill_mask[t] & ~fill_mask[t-1], array_filled[t-1], array[t])
+        # If there is cloud, use previous value, otherwise, use input values
+        # Find the first complete (gap-free) frame
+        first_complete_frame = None
+        for t in range(array.shape[0]):
+            if not fill_mask[t].any():  # No gaps in this frame
+                first_complete_frame = t
+                break
+
+        if first_complete_frame is not None:
+            array_filled[0] = array[first_complete_frame]
+        else:
+            # If no fully complete frame exists, fall back to the mean of the first frame
+            axis_ct = (0, 1)
+            array_filled[0] = np.nanmean(array, axis=axis_ct)
+
+        # Perform gap filling across time
+        for t in range(1, array.shape[0]):  # iterate over time dimension
+            array_filled[t] = np.where(fill_mask[t], array_filled[t - 1], array[t])
     elif method == 'interp_forward':
         array_filled[0:2]= array[0:2] #For first timestep, perform no gapfill
         for t in range(2,array.shape[0]): #iterate over time channel
@@ -214,18 +236,18 @@ def gap_fill(x:xr.Dataset, fill_bands:List[str], mask_band:str, fill_nans:bool=T
         if mask.any():
             # If the first frame has missing values, fill them with the mean of the frame
             if ~mask[0].any():
-                array_filled[0]= np.nanmean(array_filled, axis=axis_ct)
+                array_filled[0]= np.nanmean(array, axis=axis_ct)
                 mask[0]= True
             # If the last frame has missing values, fill them with the mean of the frame
             if ~mask[-1].any():
-                array_filled[-1]= np.nanmean(array_filled, axis=axis_ct)
+                array_filled[-1]= np.nanmean(array, axis=axis_ct)
                 mask[-1]= True
 
             # Use linear interpolation to fill missing values
             mask_t= np.sum(mask, axis=axis_cxy) > 0
-            raise NotImplementedError('')
-            # interp_func= interp1d(time_indices, array_filled[mask_t], kind="linear")
-            # array_filled[~mask]= interp_func(time_indices[~mask])
+            raise NotImplementedError('TODO: This is not working')
+            interp_func= interp1d(time_indices, array_filled[mask_t], kind="linear")
+            array_filled[~mask]= interp_func(time_indices[~mask])
     else:
         raise AssertionError(f'Unknown {method=}')
     
@@ -235,8 +257,8 @@ def gap_fill(x:xr.Dataset, fill_bands:List[str], mask_band:str, fill_nans:bool=T
     for i,b in enumerate(fill_bands):
         x_new[b]= xr.DataArray(data=array_filled[:,i], dims=x_new[b].coords.dims, 
                                attrs=x_new[b].attrs).transpose(*single_band_coord_names)
-    x_new[new_mask]= xr.DataArray(fill_mask[:,0], dims=x_new[mask_band].coords.dims, 
-                                  attrs=x_new[b].attrs).transpose(*single_band_coord_names)
+    x_new[new_mask]= xr.DataArray(fill_mask.any(axis=1), dims=x_new[fill_bands[0]].coords.dims
+                                 ).transpose(*single_band_coord_names)
     
     return x_new
         

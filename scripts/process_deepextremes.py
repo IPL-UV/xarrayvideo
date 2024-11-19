@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from tqdm.auto import tqdm
 import warnings
 
-from xarrayvideo import xarray2video, video2xarray, plot_image, to_netcdf
+from xarrayvideo import xarray2video, video2xarray, plot_image, to_netcdf, gap_fill
 
 def to_video(dataset_in_path, dataset_out_path, images_out_path, lossy_params, 
              lossless_params, conversion_rules, files, debug, align, ignore_existing=True):    
@@ -31,6 +31,7 @@ def to_video(dataset_in_path, dataset_out_path, images_out_path, lossy_params,
                 
             #We drop a variable for now, to have just 2 videos to store
             minicube= minicube.drop_vars('B07')
+            bands= ['B04','B03','B02','B8A','B06','B05']
             
             #Align cube
             if align:
@@ -44,7 +45,6 @@ def to_video(dataset_in_path, dataset_out_path, images_out_path, lossy_params,
                     data_np = np.nanmean(data_np, axis=1)
                     return data_np, mask_np
 
-                bands= ['B04','B03','B02','B8A','B06','B05']
                 if 'cloudmask_en' in minicube.variables:
                     reference_image, mask= get_masked_mean_reference(minicube, bands=bands, mask_name='cloudmask_en')
                 else:
@@ -65,9 +65,14 @@ def to_video(dataset_in_path, dataset_out_path, images_out_path, lossy_params,
                 print(f'{error_before=:.6f}, {error_after=:.6f}, improvement={error_before-error_after:.6f}')
             else:
                 minicube_aligned= minicube
+                
+            #Perform simple gap filling
+            minicube_filled= gap_fill(minicube_aligned, fill_bands=bands, mask_band=None, #Do not gapfill clouds, otherise use 'cloudmask_en'
+                                      fill_values=[1, 3, 4], method='last_value', new_mask='invalid', 
+                                      coord_names=('time', 'variable', 'y', 'x'))
 
             #Compress
-            arr_dict= xarray2video(minicube_aligned, array_id, conversion_rules,
+            arr_dict= xarray2video(minicube_filled, array_id, conversion_rules,
                            output_path=dataset_out_path, compute_stats=False, 
                            exceptions='ignore', loglevel='quiet',
                            )  
@@ -90,7 +95,7 @@ def to_video(dataset_in_path, dataset_out_path, images_out_path, lossy_params,
 if __name__ == '__main__':
     #Set parameters
     dataset_in_path= Path('/scratch/users/databases/deepextremes/deepextremes-minicubes/full')
-    dataset_out_path= Path('/scratch/users/databases/deepextremes-video-XXpsnr')
+    dataset_out_path= Path('/scratch/users/databases/deepextremes-video-final')
     images_out_path= Path('./deepextremes_images')
     lossy_params = [
                      {'c:v': 'libx265',
@@ -108,13 +113,10 @@ if __name__ == '__main__':
     lossless_params= { 'c:v':'ffv1' }
 
     conversion_rules= {
-        #Sets of 3 channels are the most efficient for lossy compression
+        #Sets of 3 channels are the most efficient
         'rgb': ( ('B04','B03','B02'), ('time','y','x'), 0, lossy_params, 12),
         'ir3': ( ('B8A','B06','B05'), ('time','y','x'), 0, lossy_params, 12),
-
-        # Compressing 1,3, or 4 channels losslessly is efficient
-        'scl': ( 'SCL', ('time','x','y'), 0, lossless_params, 8),
-        'cm': ( 'cloudmask_en', ('time','y','x'), 0, lossless_params, 8),
+        'masks': ( ('SCL', 'cloudmask_en', 'invalid'), ('time','y','x'), 0, lossless_params, 8),
         }
     files= list(dataset_in_path.glob('*/*.zarr'))
     debug= False

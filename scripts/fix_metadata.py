@@ -3,21 +3,38 @@ Fixes a bug I had with xarray2video when creating the deepextremes dataset.
 Now the bug is fixed, and this fix should no longer be needed.
 But I leave it here in case we want to modify the metadata of a dataset for whatever reason.
 '''
+
 import ffmpeg
 from pathlib import Path
 from tqdm import tqdm
 import shutil
 import tempfile
+import os
+from datetime import datetime
 
-if __name__ == '__main__':
-    # Define the base directory where the .mkv files are located
-    base_dir = Path('/scratch/users/databases/deepextremes-video-XXpsnr')
+# Define the base directory where the .mkv files are located
+base_dir = Path('/scratch/users/databases/deepextremes-video-XXpsnr')
 
-    # Get all the .mkv files in the directory
-    mkv_files = list(base_dir.glob('*/*.mkv'))
+# Specify the cutoff timestamp
+cutoff_time = datetime(2024, 10, 26, 20, 49)
 
-    # Iterate over all .mkv files with a progress bar
-    for mkv_file in (bar:=tqdm(mkv_files, desc="Processing MKV files", unit="file")):
+# Get all the folders in the base directory
+folders = [folder for folder in base_dir.iterdir() if folder.is_dir()]
+
+# Filter folders based on the creation time
+folders = [
+    folder for folder in folders 
+    if datetime.fromtimestamp(os.path.getctime(folder)) < cutoff_time
+]
+
+# Iterate over each filtered folder with a progress bar
+for folder in (bar:=tqdm(folders, desc="Processing Folders", unit="folder")):
+    mkv_files = list(folder.glob('*.mkv'))  # Get all .mkv files in this folder
+    
+    # Flag for whether an update is needed
+    update_needed = False
+
+    for mkv_file in mkv_files:
         # Get the metadata of the video file
         probe = ffmpeg.probe(mkv_file)
 
@@ -28,10 +45,8 @@ if __name__ == '__main__':
                 xarray_tag = probe['format']['tags']['XARRAY']
                 break
 
-        # Flag for whether an update is needed
-        update_needed = False
-
-        # If the XARRAY tag exists, replace the 'COORDS_DIMS' part
+        # Check if the XARRAY tag needs modification
+        # if mkv_file.name.startswith("scl"):
         if xarray_tag and "('time', 'y', 'x')" in xarray_tag:
             new_xarray_tag = xarray_tag.replace("('time', 'y', 'x')", "('time', 'x', 'y')")
             update_needed = True
@@ -56,7 +71,6 @@ if __name__ == '__main__':
 
         # Update the progress bar description based on whether there was an update
         if update_needed:
-            bar.set_description(f"Processing MKV files (updated: {mkv_file})")
+            bar.set_description(f"Processing Folders (updated: {folder})")
         else:
-            bar.set_description(f"Processing MKV files (no updates: {mkv_file})")
-            print(f'Warning: {mkv_file} was not updated')
+            bar.set_description(f"Processing Folders (no updates: {folder})")
