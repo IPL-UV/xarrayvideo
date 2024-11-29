@@ -1,7 +1,7 @@
 #Python std
 from datetime import datetime
 from pathlib import Path
-import ast, sys, os, yaml, time, warnings, glob
+import ast, sys, os, json, time, warnings, glob
 from typing import List, Optional
 
 #Others
@@ -18,7 +18,7 @@ def _gdal_read(input_path, metadata_path, loglevel='quiet'):
     Parameters:
         input_path (str): Path template for input image files. Should include a placeholder
                           for the sequence number, e.g., './image_{id}.tif'.
-        metadata_path (str): Path to the metadata file (YAML format). This file should
+        metadata_path (str): Path to the metadata file (JSON format). This file should
                              contain metadata about the images such as bit depth, number of
                              channels, and number of frames.
         loglevel (str): 'quiet' to hide output, or whatever else to show it
@@ -27,14 +27,15 @@ def _gdal_read(input_path, metadata_path, loglevel='quiet'):
         tuple: A tuple containing:
             - video_data (numpy.ndarray): A 4D numpy array of shape (T, H, W, C) where T is the
               number of frames, H is the height, W is the width, and C is the number of channels.
-            - meta_info (dict): A dictionary containing metadata read from the YAML file.
+            - meta_info (dict): A dictionary containing metadata read from the JSON file.
     
     Raises:
         RuntimeError: If an image file cannot be opened or if any issues occur during processing.
     """
     #Read the meta information
-    meta_info= yaml.safe_load(open(metadata_path))
-    # meta_info= safe_eval(open(metadata_path).read())
+    with open(metadata_path) as f:
+        meta_info = json.load(f)
+    #meta_info= safe_eval(metadata)
 
     #Extract parameters
     # bits= int(meta_info['BITS'])
@@ -71,14 +72,16 @@ def _gdal_write(output_path, metadata_path, array, codec='JP2OpenJPEG', metadata
         metadata_path (str): Path for metadata file.
         array (numpy.ndarray): The numpy array to write.
         codec (str): Codec to use (e.g., 'JP2OpenJPEG').
-        metadata (dict): Metadata to write to a YAML file.
+        metadata (dict): Metadata to write to a JSON file.
         bits (int): Number of bits per pixel (8 or 16).
         params (dict): Additional parameters for the JPEG2000 codec.
         loglevel (str): 'quiet' to hide output, or whatever else to show it
     """
     # Write the metadata
     with open(metadata_path, 'w') as f:
-        yaml.dump(metadata, f)
+        if isinstance(metadata['NORMALIZED'], np.bool_):
+            metadata['NORMALIZED'] = bool(metadata['NORMALIZED'])
+        json.dump(metadata, f, indent=2)
 
     # Create a temporary TIFF driver
     temp_driver = gdal.GetDriverByName("GTiff")

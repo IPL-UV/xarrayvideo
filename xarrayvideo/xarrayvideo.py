@@ -1,7 +1,7 @@
 #Python std
 from datetime import datetime
 from pathlib import Path
-import ast, sys, os, yaml, time, warnings
+import ast, sys, os, time, warnings
 from typing import List, Optional
 from collections import defaultdict
 
@@ -194,7 +194,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                 from .gdal_wrappers import _gdal_read, _gdal_write
             
             #Use PCA?
-            use_pca= (n_components > 0) and not is_sequence
+            use_pca= (n_components > 0)# and not is_sequence
             if use_pca:
                 #Initialize classes, fit transforms
                 DR= DRWrapper(n_components=n_components)
@@ -287,7 +287,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
             (output_path / array_id).mkdir(exist_ok=True, parents=True)
             results[name]= {}
             if is_sequence:
-                metadata_path= output_path / array_id / f'{name}.yaml'
+                metadata_path= output_path / array_id / f'{name}.json'
                 results[name]['path']= [output_path / array_id / ('%s_{id}%s'%(name, fmt))]
             else:
                 comp_names= [f'{name}_{i+1:03d}' for i in range(video_files)]
@@ -359,10 +359,12 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                     #Undo transformations
                     if repeats!= 3:
                         array_comp= array_comp[...,:-repeats]
-                    if use_pca: 
-                        array_comp= denormalize(array_comp, minmax=value_range, bits=bits)
-                        array_comp= DR.inverse_transform(array_comp)
-                
+                  
+                #Undo transformations
+                if use_pca: 
+                    array_comp= denormalize(array_comp, minmax=value_range, bits=bits)
+                    array_comp= DR.inverse_transform(array_comp)
+
                 #Compare
                 t1= time.time()
                 results[name]['d_time']= t1 - t0
@@ -472,7 +474,7 @@ def video2xarray(input_path, array_id, exceptions='raise'):
     x= xr.open_dataset(path / array_id / 'x.nc')
     
     #Check if it is a sequence of images or a video
-    meta_files= list((path / array_id).glob('*.yaml'))
+    meta_files= list((path / array_id).glob('*.json'))
     is_sequence= len(meta_files)
     
     #Read videos / image sequences along with their metadata
