@@ -14,11 +14,11 @@ def upload_taco(taco_path: Path, taco_name: str, repo_id: str):
     
     # If taco_path is a file, use its parent directory and its name as taco_name
     if taco_path.is_file() and taco_path.name.startswith(taco_name) and taco_path.suffix == '.taco':
-        files_to_upload = [str(taco_path)]
+        files_to_upload = [taco_path]
         taco_dir = taco_path.parent
     # If taco_path is a directory, glob for files starting with taco_name
     elif taco_path.is_dir():
-        files_to_upload = [str(file) for file in taco_path.glob(f"{taco_name}*.taco")]
+        files_to_upload = [file for file in taco_path.glob(f"{taco_name}*.taco")]
         taco_dir = taco_path
     else:
         print(f"Error: taco_path '{taco_path}' is neither a valid .taco file nor a directory, or taco_name '{taco_name}' does not match.")
@@ -28,9 +28,9 @@ def upload_taco(taco_path: Path, taco_name: str, repo_id: str):
         print(f"No .taco files found in '{taco_dir}' with prefix '{taco_name}'.")
         return
 
-    for i,file_path_str in enumerate(tqdm(files_to_upload)):
+    for i, file_path in enumerate(tqdm(files_to_upload)):
         api.upload_file(
-            path_or_fileobj=file_path_str,
+            path_or_fileobj=file_path,
             repo_id=repo_id,
             path_in_repo=file_path.name,
             repo_type="dataset",
@@ -58,10 +58,10 @@ if __name__ == "__main__":
         upload_taco(taco_path, taco_name, repo_id)
 
     elif args.dataset == "dynamicearthnet":
-        # This taco_path should be the specific .taco file.
-        taco_path = Path("/scratch/users/databases/dynamicearthnet-video-final/DynamicEarthNet-video.taco")
+        taco_path = Path("/scratch/users/databases/dynamicearthnet-video-final")
+        taco_name = "DynamicEarthNet-video"
         repo_id = "isp-uv-es/DynamicEarthNet-video"
-        upload_taco(taco_path, repo_id)
+        upload_taco(taco_path, taco_name, repo_id)
 
     elif args.dataset == 'simples2':
         files_path = Path("/home/oscar/cubos_julio")

@@ -469,11 +469,11 @@ def to_taco(input_path, output_path):
             file_format="TORTILLA",
             path=tortilla,
             stac_data={
-                "crs": "EPSG:" + str(minicube.attrs['crs_wkt'].to_epsg()),
+                "crs": minicube.attrs['crs_wkt'],
                 "geotransform": minicube.attrs['transform_gdal'],
                 "raster_shape": (minicube.sizes["y"], minicube.sizes["x"]),
-                "time_start": datetime.fromtimestamp(minicube.time.min().item() / 1e9),
-                "time_end": datetime.fromtimestamp(minicube.time.max().item() / 1e9),
+                "time_start": datetime.datetime.fromtimestamp(minicube.time.min().item() / 1e9),
+                "time_end": datetime.datetime.fromtimestamp(minicube.time.max().item() / 1e9),
             }
         )
 
@@ -538,14 +538,14 @@ if __name__ == '__main__':
         generate_id_files(input_path_subsets, output_path_xarray)
     
     # Transform the xarray dataset to xarrayvideo
-    if True:
+    if False:
         output_path_video.mkdir(parents=True, exist_ok=True)
         to_video(output_path_xarray, output_path_video, images_output_path, conversion_rules,
                  skip_existing=skip_existing)
         generate_id_files(input_path_subsets, output_path_video)
         
     # Save each cube in a tortilla
-    if True:
+    if False:
         output_path_tortilla.mkdir(parents=True, exist_ok=True)
         id_to_split_map = generate_id_to_split_map(output_path_video)
         to_tortilla(output_path_video, output_path_tortilla, id_to_split_map)
@@ -555,5 +555,6 @@ if __name__ == '__main__':
         output_path_taco.parent.mkdir(parents=True, exist_ok=True)
         if output_path_taco.exists():
             raise FileExistsError(f'{output_path_taco} already exists')
-        output_path_taco.mkdir(parents=True, exist_ok=True)
+        if output_path_taco.is_dir():
+            raise FileExistsError(f'{output_path_taco} is already a directory')
         to_taco(output_path_tortilla, output_path_taco)
