@@ -80,7 +80,7 @@ pip install git+https://github.com/OscarPellicer/txyvis.git
 pip install torchmetrics
 # mamba install torchmetrics
 
-# Download repo and install it with not dependencies
+# Download repo and install it with no dependencies
 cd ~
 git clone https://github.com/OscarPellicer/xarrayvideo.git
 cd xarrayvideo
@@ -96,7 +96,7 @@ To see some examples run `jupyter lab` or VSCode to open the example notebooks:
 
  - DynamicEarthnet: `example_dynamicearthnet.ipynb`
  - DeepExtremeCubes dataset: `example_deepextremecubes.ipynb`
- - Custom dataset: `example_customcube.ipynb`
+ - SimpleS2 dataset: `example_simples2.ipynb`
  - ERA5: `example_era5.ipynb`
 
 ## Basic usage 

@@ -286,20 +286,20 @@ if __name__ == '__main__':
     jpeg2000_params= [ {'codec': 'JP2OpenJPEG', 'QUALITY': str(jpeg2000_quality_list[i]), 
                         'REVERSIBLE': 'YES' if i==0 else 'NO', 'YCBCR420':'NO'} for i in range(6)]
 
-    n_bits= [16]
+    # n_bits= [16]
     # n_bits= [8, 16] #[8,10,12,16] #[8,10,12,16], [12, 16]
-    # n_bits= [8,10,12,16]
+    n_bits= [8,10,12,16]
     
-    tests= [ 'JP2OpenJPEG (PCA)'] 
+    # tests= [ 'JP2OpenJPEG (PCA)'] 
     # tests= ['libx265']
-    # tests= [ 'JP2OpenJPEG', 'libx265', 'vp9']
+    tests= [ 'JP2OpenJPEG', 'libx265', 'vp9']
     # tests= ['ffv1']
     # tests= ['libx265 (PCA - 9 bands)', 'libx265 (PCA - all bands)', 'libx265', 'vp9', 'JP2OpenJPEG']
     # tests= ['libx265', 'libx265 (PCA)', 'libx265 (PCA - 12 bands)', 'JP2OpenJPEG']
     
-    codec_params= dict(zip(tests, [jpeg2000_params], strict=True))
+    # codec_params= dict(zip(tests, [jpeg2000_params], strict=True))
     # codec_params= dict(zip(tests, [ [{'c:v':'ffv1'}], x265_params, jpeg2000_params, vp9_params], strict=True))
-    # codec_params= dict(zip(tests, [jpeg2000_params, x265_params, vp9_params], strict=True))
+    codec_params= dict(zip(tests, [jpeg2000_params, x265_params, vp9_params], strict=True))
     # codec_params= dict(zip(tests, [x265_params_PCA, x265_params_PCA, x265_params, vp9_params, jpeg2000_params], strict=True))
     # codec_params= dict(zip(tests, [jpeg2000_params], strict=True))
 
@@ -318,7 +318,9 @@ if __name__ == '__main__':
             if DEBUG and i > 0: break
 
             #Load data
+            metrics_value_range= None #This is needed for comparable PSNR computation
             if DATASET == 'deepextremes':
+                metrics_value_range= (0, (2**16-1) / 10000. )
                 array_id= '_'.join(input_path.stem.split('_')[1:3])
                 minicube= xr.open_dataset(input_path, engine='zarr')
                 minicube['SCL']= minicube['SCL'].astype(np.uint8) #Fixes problem with the dataset
@@ -335,10 +337,12 @@ if __name__ == '__main__':
                                   coord_names=('time', 'variable', 'y', 'x'))
 
             elif DATASET == 'dynamicearthnet':
+                metrics_value_range= (0, 2**16-1)
                 minicube= xr.open_dataset(input_path)
                 array_id= input_path.stem
 
             elif DATASET == 'custom':
+                metrics_value_range= (0, 2**16-1)
                 with open(input_path, 'rb') as file:
                     data = pickle.load(file)
                 minicube= data.to_dataset(dim='band')
@@ -388,6 +392,7 @@ if __name__ == '__main__':
                                                    output_path=Path('./testing/'), compute_stats=True,
                                                    loglevel='verbose' if DEBUG else 'quiet',
                                                    verbose=False, save_dataset=False,
+                                                   metrics_value_range=metrics_value_range,
                                                    )
                             overall_results[array_id][test][crf][bits]= results
                             

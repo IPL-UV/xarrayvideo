@@ -1,11 +1,13 @@
-   xarray
-   numpy
-   ffmpeg-python
-   scikit-image
-   scikit-learn
-   pyyaml
-   zarr
-   netcdf4
-   gcsfs
-   tqdm
-   seaborn
+xarray
+numpy
+ffmpeg-python
+scikit-image
+scikit-learn
+pyyaml
+zarr
+netcdf4
+gcsfs
+tqdm
+seaborn
+h5netcdf
+tacoreader

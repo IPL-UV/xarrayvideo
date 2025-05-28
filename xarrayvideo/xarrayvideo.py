@@ -119,7 +119,8 @@ def get_param(possibly_list, position):
 #Forward function
 def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_data_in_stats=False,
                  output_path='./', fmt='auto', loglevel='quiet', exceptions='raise', 
-                 verbose=True, nan_fill=None, all_zeros_is_nan=True, save_dataset=True):
+                 verbose=True, nan_fill=None, all_zeros_is_nan=True, save_dataset=True,
+                 metrics_value_range=None):
     '''
         Takes an xarray Dataset as input, and creates an xarray dataset as output, where some
         variables have been saved as video files (with some meta info for reading them back).
@@ -416,7 +417,8 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                             orig= orig[idx]
                         
                         ssim_val= ptSSIM(comp, orig).numpy().item()
-                        psnr= ptPSNR(comp, orig).numpy().item()
+                        psnr= ptPSNR(comp, orig, data_range=metrics_value_range[1] 
+                                     if metrics_value_range is not None else None).numpy().item()
                         eps= 1e-8 #Add small epsilon to avoid division by zero
                         exp_sa= ptSA(comp+eps, orig+eps).numpy().item()
                         mse= ptMSE(comp, orig).numpy().item()
@@ -424,9 +426,13 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                     except Exception as e:
                         print('It is recommeneded to install the optional dependency `torchmetrics` '
                               f'for much quiecker metric computation. Exception: {e}')
+                        min_val= metrics_value_range[0] if metrics_value_range is not None\
+                                                        else value_range.min()
+                        max_val= metrics_value_range[1] if metrics_value_range is not None\
+                                                        else value_range.max()
                         ssim_val= SSIM(array_orig_sat, array_comp, channel_axis=-1, 
-                                           data_range=value_range.max()-value_range.min())
-                        snr, psnr, mse= SNR(array_orig_sat, array_comp, max_value=value_range.max())
+                                           data_range=max_val-min_val)
+                        snr, psnr, mse= SNR(array_orig_sat, array_comp, max_value=max_val)
                         exp_sa, err_sa= SA(array_orig_sat, array_comp, channel_dim=-1)
                     t1= time.time()
                     

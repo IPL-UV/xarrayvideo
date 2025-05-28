@@ -8,6 +8,11 @@ results_temp.pkl
 !examples
 tests.md
 julio-cubes/
+.env
+.pkl
+.png
+.pdf
+.jpg
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
