@@ -32,6 +32,10 @@ setup(
         "pillow",
         "tqdm",
         "seaborn",
+        "h5netcdf",
+        "tacoreader",
+        "pytortilla",
+        "tacotoolbox",
     ],
     extras_require={
         "satalign": ["satalign"],

@@ -65,9 +65,7 @@ Step-by-step manual installation:
 
 ```bash
 # Install base requirements
-pip install xarray numpy ffmpeg scikit-image scikit-learn pyyaml zarr netcdf4 ffmpeg-python gdal gcsfs openjpeg tqdm seaborn
-# mamba install xarray numpy ffmpeg scikit-image scikit-learn pyyaml zarr netcdf4 ffmpeg-python gcsfs tqdm seaborn
-# mamba install -c gdal-master gdal openjpeg
+pip install xarray numpy scikit-image scikit-learn pyyaml zarr netcdf4 ffmpeg-python gcsfs pillow tqdm seaborn h5netcdf tacoreader pytortilla tacotoolbox
 
 # [Optional] Requirements for temporal alignment of video slices
 pip install satalign
@@ -89,6 +87,15 @@ pip install -e . --no-deps
 # Unzip the example xarray
 unzip cube.zip
 ```
+
+## TACO and Tortilla Integration
+
+This library also includes tools to package the generated videos and metadata into `.tortilla` and `.taco` files. This is particularly useful for organizing large-scale datasets for machine learning applications.
+
+- **Tortilla**: Individual samples (containing video files and metadata) are wrapped into `.tortilla` files using `pytortilla`.
+- **TACO**: A collection of tortillas is then assembled into a single `.taco` file using `tacotoolbox`, creating a complete, portable, and analysis-ready dataset.
+
+The scripts in the `scripts/` directory, such as `process_deepextremes.py` and `process_dynamicearthnet.py`, provide examples of how to use `xarrayvideo` in conjunction with `pytortilla` and `tacotoolbox` to process, package entire datasets, and upload them to HuggingFace.
 
 ## Examples
 
@@ -157,6 +164,7 @@ Other interesting files in the repo:
  - `scripts/run_tests.py`: run the tests of results section of the paper and generate the tables and plots 
  - `scripts/find_encoders.sh`: find ffpmeg encoders supporting a specfific pixel format
  - `scripts/fix_metadata.py` and `scripts/find_processing_gap.py` were used to find and fix problems in the processing of the data, but should no longer be needed
+ - `scripts/upload_taco.py`: upload the processed datasets to HuggingFace
 
 ## Contact
 

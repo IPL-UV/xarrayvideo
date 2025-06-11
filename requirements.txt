@@ -1,13 +1,16 @@
 xarray
 numpy
-ffmpeg-python
 scikit-image
 scikit-learn
 pyyaml
 zarr
 netcdf4
+ffmpeg-python
 gcsfs
+pillow
 tqdm
 seaborn
 h5netcdf
 tacoreader
+pytortilla
+tacotoolbox
