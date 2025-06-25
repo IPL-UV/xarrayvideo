@@ -17,7 +17,7 @@ This library provides two functions: `xarray2video` to encode some `xarray` vari
 If you find this library useful, please consider citing the accompanying paper:
 
 ```
-Paper in progress
+Pellicer-Valero, O. J., Aybar, C., & Camps-Valls, G. (2025). Video compression for spatiotemporal Earth system data. arXiv. https://doi.org/10.48550/arXiv.2506.19656
 ```
 
 ## Installation
@@ -38,27 +38,12 @@ mamba install -c conda-forge gdal
 conda install -c conda-forge gdal
 ```
 
-Test installation:
+Installation:
 
 ```bash
 git clone https://github.com/OscarPellicer/xarrayvideo.git
 cd xarrayvideo
 pip install -e .[all] #--no-deps
-```
-
-Standard installation (WIP):
-
-```bash
-# To install with all dependencies except gdal (very recommended)
-pip install xarrayvideo[all] 
-
-# To install with only the base dependencies
-pip install xarrayvideo
-
-# Also possible
-pip install xarrayvideo[satalign] # For temporal alignment of video slices
-pip install xarrayvideo[plotting] # For plotting functionality
-pip install xarrayvideo[metrics] # For quicker metrics calculation
 ```
 
 Step-by-step manual installation:
@@ -78,7 +63,7 @@ pip install git+https://github.com/OscarPellicer/txyvis.git
 pip install torchmetrics
 # mamba install torchmetrics
 
-# Download repo and install it with no dependencies
+# Finally, download repo and install it with no dependencies
 cd ~
 git clone https://github.com/OscarPellicer/xarrayvideo.git
 cd xarrayvideo
@@ -106,7 +91,7 @@ To see some examples run `jupyter lab` or VSCode to open the example notebooks:
  - SimpleS2 dataset: `example_simples2.ipynb`
  - ERA5: `example_era5.ipynb`
 
-## Basic usage 
+## Basic usage
 
 The basic syntax (for the DeepExtremesCubes database) is the following:
 
