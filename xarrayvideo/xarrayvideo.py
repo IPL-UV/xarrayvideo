@@ -1,7 +1,7 @@
 #Python std
 from datetime import datetime
 from pathlib import Path
-import ast, sys, os, time, warnings
+import ast, sys, os, time, warnings, logging
 from typing import List, Optional
 from collections import defaultdict
 
@@ -15,6 +15,9 @@ from .utils import (safe_eval, to_netcdf, normalize, denormalize,
 from .ffmpeg_wrappers import _ffmpeg_read, _ffmpeg_write
 from .plot import plot_pair
 from .metrics import SA, SNR, SSIM
+
+# Configure logger
+logger = logging.getLogger(__name__)
 
 #Globals
 #Codecs currently supported
@@ -70,7 +73,7 @@ def get_pix_fmt(params, channels, bits):
     #Check endianness
     if bits != 8 and sys.byteorder != 'little':
         endianness= 'be'
-        print('WARNING: System is big endian, but library was only tested in little endian systems!')
+        logger.warning('System is big endian, but library was only tested in little endian systems!')
     else:
         endianness= 'le'
 
@@ -129,7 +132,12 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
         and second level keys being: path, [original_size, compressed_size, compressed, original, 
         mse, psnr, time] (if compute_stats), [ssim] if use_ssim
     '''
-    print_fn= print if verbose else lambda *v: None #Disable printing if verbose=False
+    # Set up logging level based on verbose parameter
+    if verbose:
+        logger.setLevel(logging.INFO)
+    else:
+        logger.setLevel(logging.WARNING)
+    
     results= {} #Some fields are only filled if compute_stats is True
     for name, config in conversion_rules.items():
         #Choose defaults if not all parameters are provided
@@ -200,7 +208,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                 #Initialize classes, fit transforms
                 DR= DRWrapper(n_components=n_components)
                 array= DR.fit_transform(array)
-                print('Explained variance:', [f"{v*100:.4f}%" for v in DR.dr.explained_variance_ratio_])
+                logger.info(f'Explained variance: {[f"{v*100:.4f}%" for v in DR.dr.explained_variance_ratio_]}')
                 
             #Store all channels in sets of 3
             #TODO: even lossless compression (which supports 1,3,4 channels) is stored in sets of 3 channels
@@ -230,11 +238,9 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
             normalized= is_float(array) or is_int_but_does_not_fit
             if compression == 'lossless':
                 if is_int_but_does_not_fit:
-                    print(f'Warning: Eventhough the codec is lossless, the data has {array.dtype.itemsize*8}bits '+\
-                          f'AND {np.nanmax(array)=} > {2**bits-1=}. Compression will not be lossless.')
+                    logger.warning(f'Even though the codec is lossless, the data has {array.dtype.itemsize*8}bits AND max value {np.nanmax(array)} > {2**bits-1}. Compression will not be lossless.')
                 elif is_float(array):
-                    print(f'Warning: Eventhough the codec is lossless, the data is of float type. '+\
-                          'Compression will not be lossless.')
+                    logger.warning('Even though the codec is lossless, the data is of float type. Compression will not be lossless.')
             if normalized:
                 array= normalize(array, minmax=value_range, bits=bits)
                 
@@ -336,10 +342,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                 percentage= (video_size / array_size)*100
                 bpppb= video_size * 2**20 * 8 / array_orig.size #bits per pixel per band (=bps)
 
-                print_fn(f'{name}: {array_size:.2f}Mb -> {[f"{v:.2f}" for v in video_sizes[-10:]]}Mb '\
-                         f'(showing last 10)'+\
-                         f'({percentage:.2f}% of original size, {bpppb:.4f} bpppb) in {t1 - t0:.2f}s'\
-                         f'\n - {params=}')
+                logger.info(f'{name}: {array_size:.2f}Mb -> {[f"{v:.2f}" for v in video_sizes[-10:]]} Mb (showing last 10) ({percentage:.2f}% of original size, {bpppb:.4f} bpppb) in {t1 - t0:.2f}s\n - params={params}')
                 
                 results[name]['original_size']= array_size
                 results[name]['compressed_size']= video_size
@@ -369,7 +372,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                 #Compare
                 t1= time.time()
                 results[name]['d_time']= t1 - t0
-                print_fn(f' - Decompression time {results[name]["d_time"]:.2f}s')
+                logger.info(f' - Decompression time {results[name]["d_time"]:.2f}s')
                 
                 assert array_comp.shape == array_orig.shape, f'{array_comp.shape=} != {array_orig.shape=}'
                 
@@ -381,7 +384,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                     if verbose: 
                         plot_pair(array_orig[-1, ..., -3:], array_comp[-1, ..., -3:], 
                                   max_val=value_range.max(), factor=10)
-                        print(f'Saturation values per band {bands}):\n {value_range}')
+                        logger.info(f'Saturation values per band {bands}:\n {value_range}')
                         
                     #TODO: Process the orginal array in the same way as the video, to be able to compare them
                     array_orig_sat= array_orig 
@@ -408,8 +411,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                         #Sample some data?
                         if comp.numel() > METRICS_MAX_N:
                             sample_fraction= METRICS_MAX_N / comp.numel()
-                            print(f'Using only {sample_fraction*100:.2f}% of data for metrics computation. '
-                                  f'Adjust this by modifying global variable {METRICS_MAX_N=}')
+                            logger.info(f'Using only {sample_fraction*100:.2f}% of data for metrics computation. Adjust this by modifying global variable METRICS_MAX_N={METRICS_MAX_N}')
                             torch.manual_seed(SEED)
                             ts= comp.shape[0]
                             idx= [torch.randperm(ts)[:int(ts*sample_fraction)]]
@@ -424,8 +426,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                         mse= ptMSE(comp, orig).numpy().item()
                         
                     except Exception as e:
-                        print('It is recommeneded to install the optional dependency `torchmetrics` '
-                              f'for much quiecker metric computation. Exception: {e}')
+                        logger.warning(f'It is recommended to install the optional dependency `torchmetrics` for much quicker metric computation. Exception: {e}')
                         min_val= metrics_value_range[0] if metrics_value_range is not None\
                                                         else value_range.min()
                         max_val= metrics_value_range[1] if metrics_value_range is not None\
@@ -436,11 +437,11 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                         exp_sa, err_sa= SA(array_orig_sat, array_comp, channel_dim=-1)
                     t1= time.time()
                     
-                    print_fn(f' - SSIM_sat {ssim_val:.6f}')
-                    print_fn(f' - MSE_sat {mse:.6f}')
-                    print_fn(f' - PSNR_sat {psnr:.4f}')
-                    print_fn(f' - Exp. SA {exp_sa:.4f} ')
-                    print_fn(f'Metrics took {t1-t0:.2f}s to run')
+                    logger.info(f' - SSIM_sat {ssim_val:.6f}')
+                    logger.info(f' - MSE_sat {mse:.6f}')
+                    logger.info(f' - PSNR_sat {psnr:.4f}')
+                    logger.info(f' - Exp. SA {exp_sa:.4f}')
+                    logger.info(f'Metrics took {t1-t0:.2f}s to run')
                     
                     results[name]['ssim']= ssim_val
                     results[name]['psnr']= psnr
@@ -453,7 +454,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                         plot_pair(array_orig[-1, ..., -3:], array_comp[-1, ..., -3:], 
                                   max_val=2**bits-1)                        
                     acc= np.nanmean(array_comp==array_orig)
-                    print_fn(f' - acc {acc:.2f}')
+                    logger.info(f' - acc {acc:.2f}')
                     results[name]['acc']= acc
 
                 if include_data_in_stats:
@@ -461,7 +462,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                     results[name]['original']= array_orig
                 
         except Exception as e:
-            print(f'Exception processing {array_id=} {name=}: {e}')
+            logger.error(f'Exception processing {array_id=} {name=}: {e}')
             if exceptions == 'raise': raise e
 
     #Save the resulting xarray
@@ -539,7 +540,7 @@ def video2xarray(input_path, array_id, exceptions='raise'):
             try:
                 x[band]= xr.DataArray(data=array[...,i], dims=coords_dims, attrs=attr)
             except Exception as e:
-                print(f'Exception processing {array_id=} {band=}: {e}')
+                logger.error(f'Exception processing {array_id=} {band=}: {e}')
                 if exceptions == 'raise': raise e
 
     return x

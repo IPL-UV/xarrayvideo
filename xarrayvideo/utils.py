@@ -1,13 +1,16 @@
 #Python std
 from datetime import datetime
 from pathlib import Path
-import ast, sys, os, yaml, time, warnings
+import ast, sys, os, yaml, time, warnings, logging
 from typing import List, Optional
 
 #Others
 import xarray as xr, numpy as np
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
+
+# Configure logger
+logger = logging.getLogger(__name__)
 
 #Set global seed
 SEED= 42
@@ -147,7 +150,7 @@ def safe_eval(s):
         parsed= ast.parse(s.replace('nan', 'None'), mode='eval')
         evaluated= ast.literal_eval(parsed)
     except Exception as e:
-        print(f'Exception evaulating {s=}: {e}')
+        logger.exception(f'Exception evaluating {s=}: {e}')
     return evaluated
 
 def sanitize_attributes(x):
@@ -173,7 +176,7 @@ def gap_fill(x:xr.Dataset, fill_bands:List[str], mask_band:Optional[str], fill_n
              method:str='last_value'):
     #Checks
     if coord_names[0] not in ['t', 'time', 'frame']: 
-        print('Make sure that the first element of `coord_names` is the time dimension')
+        logger.warning('Make sure that the first element of `coord_names` is the time dimension')
     
     #Prepare bands array
     x_array= x[fill_bands].to_array()

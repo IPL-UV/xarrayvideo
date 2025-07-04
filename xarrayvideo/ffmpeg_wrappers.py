@@ -1,7 +1,7 @@
 #Python std
 from datetime import datetime
 from pathlib import Path
-import ast, sys, os, yaml, time, warnings
+import ast, sys, os, yaml, time, warnings, logging
 from typing import List, Optional
 
 #Others
@@ -9,6 +9,9 @@ import numpy as np, ffmpeg
 
 #Own lib
 from .utils import safe_eval
+
+# Configure logger
+logger = logging.getLogger(__name__)
 
 def _ffmpeg_read(video_path, loglevel='quiet'):
     #Open the video file using ffmpeg
@@ -27,7 +30,7 @@ def _ffmpeg_read(video_path, loglevel='quiet'):
     requested_pix_fmt= meta_info['REQ_PIX_FMT']
     output_pix_fmt= meta_info['OUT_PIX_FMT']
     if actual_pix_fmt != requested_pix_fmt:
-        print(f'Warning: {requested_pix_fmt=} is different from {actual_pix_fmt=}')
+        logger.warning(f'Requested pixel format {requested_pix_fmt} is different from actual format {actual_pix_fmt}')
     
     planar_out= meta_info['PLANAR'] in [True, 'True']
     bits= int(meta_info['BITS'])
@@ -102,8 +105,7 @@ def _ffmpeg_write(video_path, array, x, y, output_params, planar_in=True,
         try:
             process.stdin.write(frame.tobytes())
         except Exception as e:
-            print(f'Exception processing frames: '
-                  'Try rerunning with `loglevel=\'verbose\'` for better error messages.')
+            logger.error('Exception processing frames: Try rerunning with loglevel="verbose" for better error messages.')
             raise e
 
     #Close the ffmpeg process
