@@ -6,7 +6,7 @@ from tqdm.auto import tqdm
 import warnings
 import pandas as pd
 import pytortilla
-import tacoreader
+import tacoreader.v1 as tacoreader
 import json
 import tacotoolbox
 from xarrayvideo import xarray2video, video2xarray, plot_image, gap_fill
@@ -339,13 +339,12 @@ def to_taco(dataset_in_path, dataset_out_path_taco, registry_path):
 
 if __name__ == '__main__':
     #Set parameters
-    dataset_in_path= Path('/scratch/users/databases/deepextremes/deepextremes-minicubes/full')
-    registry_path = Path('/scratch/users/databases/dx.csv')
+    dataset_in_path= Path('/data/databases/deepextremes_final')
+    registry_path = Path('/data/databases/dx.csv')
     
-    # dataset_out_path= Path('/scratch/users/databases/deepextremes-video-final')
-    dataset_out_path= Path('/scratch/users/databases/deepextremes-video-56psnr')
-    dataset_out_path_tortilla= Path('/scratch/users/databases/deepextremes-video-tortilla')
-    dataset_out_path_taco= Path('/scratch/users/databases/DeepExtremeCubes-video.taco')
+    dataset_out_path= Path('/data/databases/deepextremecubes-video-final')
+    dataset_out_path_tortilla= Path('/data/databases/deepextremes-video-tortilla')
+    dataset_out_path_taco= Path('/data/databases/deepextremecubes-video-final/deepextremecubes-video-final.taco')
     images_out_path= Path('./deepextremes_images')
     lossy_params = [
                      {'c:v': 'libx265',
@@ -375,7 +374,7 @@ if __name__ == '__main__':
     
     # Convert the dataset to xarrayvideo format
     if False:
-        files= list(dataset_in_path.glob('*/*.zarr'))
+        files= list(dataset_in_path.glob('*.zarr'))
         dataset_out_path.mkdir(parents=True, exist_ok=True)
         to_video(dataset_out_path, images_out_path, conversion_rules, files, 
                  debug, align, ignore_existing=ignore_existing, compute_stats=compute_stats)

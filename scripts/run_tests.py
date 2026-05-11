@@ -6,15 +6,20 @@ python scripts/run_tests.py --dataset custom --rules_name pca
 python scripts/run_tests.py --dataset era5 --rules_name all
 
 To generate sample images:
-python scripts/run_tests.py --dataset dynamicearthnet --rules_name img --id 8077_5007
-python scripts/run_tests.py --dataset deepextremes --rules_name img --id 10.38_50.15
-python scripts/run_tests.py --dataset custom --rules_name img --id cubo1
+python scripts/run_tests.py --dataset dynamicearthnet --rules_name img --id 8077_5007 --plot_samples
+python scripts/run_tests.py --dataset deepextremes --rules_name img --id 10.38_50.15 --plot_samples
+python scripts/run_tests.py --dataset custom --rules_name img --id cubo1 --plot_samples
 python scripts/run_tests.py --dataset era5 --rules_name img --plot_samples
+
+To run on slurm:
+cd ~
+sbatch run_test_xarrayvideo.sh 
 '''
 
 import xarray as xr
 import numpy as np
 from pathlib import Path
+from PIL import Image
 from xarrayvideo import xarray2video, video2xarray, gap_fill, plot_image, to_netcdf
 import matplotlib.pyplot as plt
 from tqdm import tqdm
@@ -26,6 +31,7 @@ import seaborn as sns
 #Reset matplotlib config and change defaults
 import matplotlib.ticker as mtick
 import matplotlib.pyplot as plt, matplotlib as mpl
+import re
 mpl.rcParams.update(mpl.rcParamsDefault)    
 plt.style.use('ggplot')
 mpl.rcParams.update({'font.size': 10})
@@ -35,6 +41,14 @@ from scipy.interpolate import UnivariateSpline
 import statsmodels.api as sm
 
 rng= np.random.default_rng(seed=42)
+
+def get_unique_save_stem(base_path):
+    candidate = base_path
+    suffix = 1
+    while any(candidate.parent.glob(f'{candidate.name}*')):
+        candidate = base_path.with_name(f'{base_path.name}_rerun{suffix}')
+        suffix += 1
+    return candidate
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Process command-line options")
@@ -89,49 +103,80 @@ def parse_args():
         help="If true, plot some example images."
     )
 
+    parser.add_argument(
+        "--plot_pca",
+        action="store_true",
+        default=False,
+        help="If true, include PCA variants in the generated plots when available."
+    )
+
     return parser.parse_args()
 
 import argparse
 
-# def reorder_legend_items(handles, labels, ncols):
-#     """
-#     Reorders legend handles and labels to fill from left to right.
-    
-#     Args:
-#         handles: List of legend handles
-#         labels: List of legend labels
-#         ncols: Number of columns desired
-    
-#     Returns:
-#         tuple: (reordered_handles, reordered_labels)
-#     """
-#     # First, let's ensure we have the same number of handles and labels
-#     n_items = len(handles)
-#     if n_items != len(labels):
-#         print(f"Warning: Number of handles ({n_items}) doesn't match number of labels ({len(labels)})")
-    
-#     # Print original items for debugging
-#     print("Original items:", labels)
-    
-#     nrows = (n_items + ncols - 1) // ncols
-    
-#     # Create the reordered lists
-#     reordered_handles = []
-#     reordered_labels = []
-    
-#     # Fill row by row
-#     for col in range(ncols):
-#         for row in range(nrows):
-#             idx = col + row * ncols
-#             if idx < n_items:
-#                 reordered_handles.append(handles[idx])
-#                 reordered_labels.append(labels[idx])
-    
-#     # Print reordered items for debugging
-#     print("Reordered items:", reordered_labels)
-#     print(f"Original count: {n_items}, Reordered count: {len(reordered_handles)}")
-    
-#     return reordered_handles, reordered_labels
+def format_legend_items(handles, labels, dataset, plot_pca):
+    default_ncols = {'deepextremes':6, 'dynamicearthnet':3, 'custom':5, 'era5':6}.get(dataset, 5)
+
+    if dataset != 'custom':
+        return handles, labels, default_ncols
+
+    def empty_handle():
+        return plt.Line2D([], [], color='none')
+
+    def extract_bits(label):
+        match = re.search(r'(\d+)bits', label)
+        return int(match.group(1)) if match else -1
+
+    pca_order = {
+        'libx265 (PCA)': 0,
+        'libx265 (PCA - 3 bands)': 1,
+        'libx265 (PCA - 9 bands)': 2,
+        'libx265 (PCA - 12 bands)': 3,
+        'libx265 (PCA - all bands)': 4,
+    }
+    group_order = ['libx265', 'libx265_pca', 'vp9', 'JP2OpenJPEG']
+    grouped_items = {group: [] for group in group_order}
+    fallback_items = []
+
+    for handle, label in zip(handles, labels, strict=False):
+        bits = extract_bits(label)
+        if 'libx265 (PCA' in label:
+            codec_name = next((name for name in pca_order if name in label), 'libx265 (PCA)')
+            grouped_items['libx265_pca'].append(((pca_order.get(codec_name, 99), -bits), handle, label))
+        elif 'libx265' in label:
+            grouped_items['libx265'].append(((-bits,), handle, label))
+        elif 'vp9' in label:
+            grouped_items['vp9'].append(((-bits,), handle, label))
+        elif 'JP2OpenJPEG' in label:
+            grouped_items['JP2OpenJPEG'].append(((-bits,), handle, label))
+        else:
+            fallback_items.append((handle, label))
+
+    ordered_columns = []
+    for group in group_order:
+        if group == 'libx265_pca' and not plot_pca:
+            continue
+        items = grouped_items[group]
+        if not items:
+            continue
+        ordered_columns.append([(handle, label) for _, handle, label in sorted(items, key=lambda item: item[0])])
+
+    if fallback_items:
+        ordered_columns.append(fallback_items)
+
+    if not ordered_columns:
+        return handles, labels, default_ncols
+
+    nrows = max(len(column) for column in ordered_columns)
+    reordered_handles = []
+    reordered_labels = []
+    for column in ordered_columns:
+        padded_column = column + [(empty_handle(), '')] * (nrows - len(column))
+        for handle, label in padded_column:
+            reordered_handles.append(handle)
+            reordered_labels.append(label)
+
+    return reordered_handles, reordered_labels, len(ordered_columns)
 
 def get_conversion_rules(dataset, test, param, bits, **kwargs):
     if dataset == 'deepextremes':
@@ -147,21 +192,26 @@ def get_conversion_rules(dataset, test, param, bits, **kwargs):
              conversion_rules= {
                 # '7 bands': ( bands, ('time','x','y'), 
                 #             len(bands) if 'PCA' in test else False, param, bits),
-                'rgb': ( ('B04','B03','B02'), ('time','y','x'), False, param, bits),
-                'ir3': ( ('B8A','B06','B05'), ('time','y','x'), False, param, bits),
+                'rgb': ( ('B04','B03','B02'), ('time','y','x'), 
+                         3 if '(PCA)' in test else False, param, bits),
+                'ir3': ( ('B8A','B06','B05'), ('time','y','x'), 
+                         3 if '(PCA)' in test else False, param, bits),
                 'masks': ( ('SCL', 'cloudmask_en', 'invalid'), ('time','y','x'), 0, param, bits),
                 }  
         else:
              conversion_rules= {
                 # '7 bands': ( bands, ('time','x','y'), 
                 #             len(bands) if 'PCA' in test else False, param, bits),
-                'rgb': ( ('B04','B03','B02'), ('time','y','x'), False, param, bits),
-                'ir3': ( ('B8A','B06','B05'), ('time','y','x'), False, param, bits),
+                'rgb': ( ('B04','B03','B02'), ('time','y','x'), 
+                         3 if '(PCA)' in test else False, param, bits),
+                'ir3': ( ('B8A','B06','B05'), ('time','y','x'), 
+                         3 if '(PCA)' in test else False, param, bits),
                 # 'masks': ( ('SCL', 'cloudmask_en', 'invalid'), ('time','y','x'), 0, param, bits),
                 }
     elif dataset == 'dynamicearthnet':
         conversion_rules= {
-            'bands': (['R', 'G', 'B', 'NIR'], ('time', 'y', 'x'), False, param, bits),
+            'bands': (['R', 'G', 'B', 'NIR'], ('time', 'y', 'x'), 
+                      4 if '(PCA)' in test else 3 if '(PCA - 3 bands)' in test else False, param, bits),
             }
     elif dataset == 'custom':
         conversion_rules= {
@@ -200,21 +250,25 @@ if __name__ == '__main__':
     DATASET= args.dataset #One of ['deepextremes', 'dynamicearthnet', 'custom', 'era5']
     RULES_NAME= args.rules_name #'11channels', '7channels', etc., just for save name
     PLOT_SAMPLES= args.plot_samples
+    PLOT_PCA= args.plot_pca
 
     bands= None
+    sample_limit = None
     if DATASET == 'deepextremes':
         #Take N random cubes
-        dataset_in_path= Path('/scratch/users/databases/deepextremes/deepextremes-minicubes/full')
-        cube_paths= np.array(list(dataset_in_path.glob('*/*.zarr'))) #'*/*.zarr'
+        # dataset_in_path= Path('/scratch/users/databases/deepextremes_final')
+        dataset_in_path= Path('/data/databases/deepextremes_final')
+        cube_paths= np.array(list(dataset_in_path.glob('*.zarr'))) # '*.zarr'
         rng.shuffle(cube_paths)
         bands= ['B04','B03','B02','B8A','B07','B06','B05']
-        cube_paths= cube_paths[:10]
+        sample_limit = 10
     elif DATASET == 'dynamicearthnet':
         #Take N random cubes
-        dataset_in_path= Path('/scratch/users/databases/dynamicearthnet-xarray')
+        # dataset_in_path= Path('/scratch/users/databases/dynamicearthnet-xarray')
+        dataset_in_path= Path('/data/databases/dynamicearthnet-xarray')
         cube_paths= np.array(list(dataset_in_path.glob('*.nc')))
         rng.shuffle(cube_paths)
-        cube_paths= cube_paths[:5]
+        sample_limit = 5
     elif DATASET == 'custom':
         cube_paths= [Path(f'../cubos_julio/cubo{i}_pickle') for i in range(1,5)]
         bands= ['B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B11', 'B12']
@@ -229,6 +283,8 @@ if __name__ == '__main__':
         cube_paths_orig= copy(cube_paths)
         cube_paths= [c for c in cube_paths if args.id in str(c)]
         assert len(cube_paths), f'{args.id=} was not found in {cube_paths_orig[:10]}...'
+    elif sample_limit is not None:
+        cube_paths= cube_paths[:sample_limit]
 
     #Define all tests
     crfs= ['Best','Very high','High','Medium','Low','Very low']# + ['Very low 2', 'Very low 3'] 
@@ -302,12 +358,52 @@ if __name__ == '__main__':
     codec_params= dict(zip(tests, [jpeg2000_params, x265_params, vp9_params], strict=True))
     # codec_params= dict(zip(tests, [x265_params_PCA, x265_params_PCA, x265_params, vp9_params, jpeg2000_params], strict=True))
     # codec_params= dict(zip(tests, [jpeg2000_params], strict=True))
+        
+    # Example commands to run PCA tests across modalities:
+    # DeepExtremeCubes: python scripts/run_tests.py --dataset deepextremes --rules_name pca
+    # DynamicEarthNet:  python scripts/run_tests.py --dataset dynamicearthnet --rules_name pca
+    # Custom/SimpleS2:  python scripts/run_tests.py --dataset custom --rules_name pca
+    # ERA5:             python scripts/run_tests.py --dataset era5 --rules_name pca
+    
+
+    #/home/oscar/.conda/envs/xv/bin/python scripts/run_tests.py --dataset custom --rules_name cs-pca > cs-pca.log 2>&1; /home/oscar/.conda/envs/xv/bin/python scripts/run_tests.py --dataset dynamicearthnet --rules_name de-pca > de-pca.log 2>&1; /home/oscar/.conda/envs/xv/bin/python scripts/run_tests.py --dataset era5 --rules_name e5-pca > e5-pca.log 2>&1; /home/oscar/.conda/envs/xv/bin/python scripts/run_tests.py --dataset deepextremes --rules_name dx-pca > dx-pca.log 2>&1
+    
+    # If the user specifically wants to run a PCA test for the selected dataset, 
+    # we can append the PCA variant to the list of tests depending on the 'rules_name' argument.
+    if 'pca' in RULES_NAME.lower():
+        if DATASET == 'custom':
+            tests += ['libx265 (PCA)', 'libx265 (PCA - 9 bands)']
+            codec_params = dict(zip(tests, [jpeg2000_params, x265_params, vp9_params, x265_params_PCA, x265_params_PCA], strict=True))
+        elif DATASET == 'era5':
+            tests += ['libx265 (PCA)', 'libx265 (PCA - 12 bands)']
+            codec_params = dict(zip(tests, [jpeg2000_params, x265_params, vp9_params, x265_params_PCA, x265_params_PCA], strict=True))
+        elif DATASET == 'dynamicearthnet':
+            tests += ['libx265 (PCA)', 'libx265 (PCA - 3 bands)']
+            codec_params = dict(zip(tests, [jpeg2000_params, x265_params, vp9_params, x265_params_PCA, x265_params_PCA], strict=True))
+        else:
+            tests += ['libx265 (PCA)']
+            codec_params = dict(zip(tests, [jpeg2000_params, x265_params, vp9_params, x265_params_PCA], strict=True))
+    
+    # If you want to run ALL tests (including PCA) at once, uncomment the following block:
+    # tests = ['JP2OpenJPEG', 'libx265', 'vp9', 'libx265 (PCA)']
+    # codec_params = dict(zip(tests, [jpeg2000_params, x265_params, vp9_params, x265_params_PCA], strict=True))
+
+    if PLOT_SAMPLES:
+        tests = ['libx265']
+        codec_params = {'libx265': x265_params}
+        n_bits = [12]
 
     metrics_keep= ['compression', 'psnr', 'mse', 'bpppb', 'exp_sa', 'time', 'd_time', 'ssim']
     
     # Set save name and create path    
-    save_name= f'./results/results_{DATASET}_{RULES_NAME}'
+    requested_save_name_path = Path(f'./results/results_{DATASET}_{RULES_NAME}')
+    save_name_path = get_unique_save_stem(requested_save_name_path)
+    if save_name_path.name != requested_save_name_path.name:
+        print(f'Existing results detected, saving this run as {save_name_path.name}')
+    save_name = str(save_name_path)
+    load_name = str(requested_save_name_path)
     Path(save_name).parent.mkdir(parents=True, exist_ok=True)
+    Path('results/samples').mkdir(parents=True, exist_ok=True)
     
     #_____TESTS____
 
@@ -320,11 +416,19 @@ if __name__ == '__main__':
             #Load data
             metrics_value_range= None #This is needed for comparable PSNR computation
             if DATASET == 'deepextremes':
-                metrics_value_range= (0, (2**16-1) / 10000. )
+                metrics_value_range= (0., (2**16-1) / 10000. )
                 array_id= '_'.join(input_path.stem.split('_')[1:3])
                 minicube= xr.open_dataset(input_path, engine='zarr')
-                minicube['SCL']= minicube['SCL'].astype(np.uint8) #Fixes problem with the dataset
-                minicube['cloudmask_en']= minicube['cloudmask_en'].astype(np.uint8)
+                
+                # Ensure required bands are present; skip cube if not
+                if 'SCL' not in minicube or 'cloudmask_en' not in minicube:
+                    print(f"Skipping cube {array_id} as it is missing 'SCL' or 'cloudmask_en'")
+                    continue
+                    
+                if 'SCL' in minicube:
+                    minicube['SCL']= minicube['SCL'].astype(np.uint8) #Fixes problem with the dataset
+                if 'cloudmask_en' in minicube:
+                    minicube['cloudmask_en']= minicube['cloudmask_en'].astype(np.uint8)
                 # minicube= minicube.drop_vars('B07') #We drop a variable for now
 
                 #Align
@@ -337,12 +441,13 @@ if __name__ == '__main__':
                                   coord_names=('time', 'variable', 'y', 'x'))
 
             elif DATASET == 'dynamicearthnet':
-                metrics_value_range= (0, 2**16-1)
+                metrics_value_range= (-2**15, 2**15-1)
+                # metrics_value_range= (0, 10000) # Max values are around 13484
                 minicube= xr.open_dataset(input_path)
                 array_id= input_path.stem
 
             elif DATASET == 'custom':
-                metrics_value_range= (0, 2**16-1)
+                metrics_value_range= (0., 2**16-1)
                 with open(input_path, 'rb') as file:
                     data = pickle.load(file)
                 minicube= data.to_dataset(dim='band')
@@ -373,6 +478,8 @@ if __name__ == '__main__':
                         #Skip bits that are not possible for a given codec
                         if 'libx265' in test or 'vp9' in test:
                             if bits not in [8,10,12]: continue
+                            # PCA tests only run at 12-bit x265
+                            if '(PCA' in test and bits != 12: continue
                             #if 'vp9' in test and bits == 8: continue #this combination hangs ffmpeg for some reason
                         elif 'hevc_nvenc' in test:
                             if bits not in [16]: continue
@@ -398,11 +505,9 @@ if __name__ == '__main__':
                             
                             #Plot some original / compressed samples
                             if PLOT_SAMPLES:
-                                import cv2
-                                cp_params= [cv2.IMWRITE_PNG_COMPRESSION, 1] #0-9 for PNG, 0 is lossless
                                 for name in results.keys():
                                     orig, comp= results[name]['original'], results[name]['compressed']
-                                    save_name_img= f'{DATASET}_{RULES_NAME}_{test}_{bits}_{array_id.replace("/","")}_{name}_{crf}'
+                                    save_name_img= f'{save_name_path.name}_{test}_{bits}_{array_id.replace("/","")}_{name}_{crf}'
                                     factor= {
                                          'deepextremes':{'rgb':5., 'ir3':1.8, 'masks':1}.get(name, 1.), 
                                          'dynamicearthnet':1.1/2000., 
@@ -414,10 +519,21 @@ if __name__ == '__main__':
                                     comp_clip= (comp*factor*255).clip(0, 255).astype(np.uint8)
                                     for t in timesteps:
                                         if crf == crfs[0]:
-                                            cv2.imwrite(f'results/samples/{save_name_img}_{t}_orig.png', 
-                                                cv2.cvtColor(orig_clip[t][...,[2,1,0]], cv2.COLOR_RGB2BGR), cp_params)
-                                        cv2.imwrite(f'results/samples/{save_name_img}_{t}_comp.png', 
-                                                    cv2.cvtColor(comp_clip[t][...,[2,1,0]] , cv2.COLOR_RGB2BGR), cp_params)
+                                            Image.fromarray(orig_clip[t][..., :3], mode='RGB').save(
+                                                f'results/samples/{save_name_img}_{t}_orig.png',
+                                                compress_level=1,
+                                            )
+                                        Image.fromarray(comp_clip[t][..., :3], mode='RGB').save(
+                                            f'results/samples/{save_name_img}_{t}_comp.png',
+                                            compress_level=1,
+                                        )
+
+                                # The sample PNGs are already written; drop the large arrays
+                                # so plot-sample runs do not exhaust memory when temp results are pickled.
+                                for name, metadata in results.items():
+                                    if isinstance(metadata, dict):
+                                        metadata.pop('original', None)
+                                        metadata.pop('compressed', None)
 
                             #Delete the output folder
                             del_path= results[next(iter(conversion_rules.keys()))]['path'][0].parent
@@ -429,7 +545,8 @@ if __name__ == '__main__':
                             #overall_results[array_id][test][crf][bits]= None
 
                 #For some longer tests, just make sure that we don't lose everything...
-                pickle.dump(overall_results, open('results_temp.pkl', 'wb'))
+                with open('results_temp.pkl', 'wb') as temp_file:
+                    pickle.dump(overall_results, temp_file)
 
     #______SAVE DATA_____    
             
@@ -489,10 +606,10 @@ if __name__ == '__main__':
     #Load results?
     if USE_SAVED: 
         # Load the data
-        results_df= pd.read_pickle(f'{save_name}.pkl')
+        results_df= pd.read_pickle(f'{load_name}.pkl')
         
         # Check if the secondary dataframe exists
-        file_name_16 = f'{save_name[:-1]}8.pkl'
+        file_name_16 = f'{load_name[:-1]}8.pkl'
         import os
         if os.path.exists(file_name_16):
             # Load and concatenate the second dataframe if it exists
@@ -505,8 +622,19 @@ if __name__ == '__main__':
     # x_label= 'Compression percentage' #One of {'Compression percentage', 'Compression factor', 'bpppb'}
     x_label= 'bpppb'
     c_index= 0 #Color index, go through the colormap
-    # tests_plot= ['libx265', 'libx265 (PCA - all bands)', 'libx265 (PCA - 9 bands)', 'vp9', 'JP2OpenJPEG']
-    tests_plot= ['libx265',  'vp9', 'JP2OpenJPEG']
+    available_tests = set(results_df.index.get_level_values('test_name').unique())
+    tests_plot_candidates = ['libx265']
+    if PLOT_PCA:
+        tests_plot_candidates += [
+            'libx265 (PCA)',
+            'libx265 (PCA - 3 bands)',
+            'libx265 (PCA - 9 bands)',
+            'libx265 (PCA - 12 bands)',
+            'libx265 (PCA - all bands)',
+        ]
+    tests_plot_candidates += ['vp9', 'JP2OpenJPEG']
+    tests_plot= [test_name for test_name in tests_plot_candidates if test_name in available_tests]
+    plot_name_suffix = '_with_pca' if PLOT_PCA else ''
     metrics_plot= {'psnr':'PSNR (dB)', 
                    #'mse':'MSE', #We disable MSE because it is very difficult to plot
                    'ssim':'SSIM', 'exp_sa':'SA (radians)', 
@@ -556,9 +684,19 @@ if __name__ == '__main__':
             for i_video, video in enumerate(conversion_rules.keys()):
                 # if 'masks' in video: continue
                 for test in tests_plot:
-                    for bits in n_bits[::-1]:
+                    try:
+                        test_video_data = results_df.xs(test, level='test_name').xs(video, level='video_name')
+                        available_bits = sorted(test_video_data.index.get_level_values('bits').unique(), reverse=True)
+                    except Exception as e:
+                        print(f'Error processing {test=}, {video=}, {metric=}: {e}')
+                        if 'index' in str(e): 
+                            if DEBUG: 
+                                breakpoint()
+                        continue
+
+                    for bits in available_bits:
                         try:
-                            data= results_df.xs(test, level='test_name').xs(video, level='video_name').xs(bits, level='bits')
+                            data= test_video_data.xs(bits, level='bits')
                             metric_values= data.xs(metric, level='metric').values.flatten()
                             if x_label == 'Compression factor':
                                 compression_values= 1/data.xs('compression', level='metric').values.flatten()
@@ -572,10 +710,12 @@ if __name__ == '__main__':
                             line_kws= {'linestyle': {8:':', 10:'--', 12:'-', 16:'-'}[bits], 'label':f'{video} {bits}bits {test}'}
                             compression_values_plot= compression_values * (100 if x_label == 'Compression percentage' else 1)
                             color= {'libx265':colors[0+i_video], 
+                                    'libx265 (PCA)': colors[2+i_video],
+                                    'libx265 (PCA - 3 bands)': colors[3+i_video],
                                     'vp9':colors[4+(-1 if i_video == 2 else i_video)], 
-                                    'libx265 (PCA - all bands)':colors[3+i_video], 
-                                    'libx265 (PCA - 12 bands)': colors[2+i_video], 
-                                    'libx265 (PCA - 9 bands)': colors[2+i_video], 
+                                    'libx265 (PCA - all bands)':colors[7+i_video], 
+                                    'libx265 (PCA - 12 bands)': colors[3+i_video], 
+                                    'libx265 (PCA - 9 bands)': colors[5+i_video], 
                                     'ffv1': colors[-1],
                                     'JP2OpenJPEG':colors[6+i_video]}[test] #colors[c_index] -3
 
@@ -606,7 +746,7 @@ if __name__ == '__main__':
             #     ax.axhline(metric_values[0], color='darkred', linestyle='--', label='uint8 discretization limit')
 
             ax.set_xlabel(x_label)
-            plt.savefig(f'{save_name}_{x_label.lower().replace(" ","_")}_{metric}.pdf', dpi=200, bbox_inches='tight')
+            plt.savefig(f'{save_name}{plot_name_suffix}_{x_label.lower().replace(" ","_")}_{metric}.pdf', dpi=200, bbox_inches='tight')
 
             if i == 0:
                 # Extract the legend
@@ -617,24 +757,7 @@ if __name__ == '__main__':
                 handles = legend.legendHandles
                 labels = [capitalize_first(t.get_text()) for t in legend.texts]
                 labels = [l.replace('Relative humidity', 'Rel. humidity') for l in labels]
-                ncols= {'deepextremes':6, 'dynamicearthnet':3, 'custom':5, 'era5':6}.get(DATASET, 5)
-
-                # Find all indices containing "JP2OpenJPEG"
-                target_indices = [i for i, label in enumerate(labels) if "8bits JP2OpenJPEG" in label]
-
-                # Insert empty handles and labels after each target index
-                # We need to account for the offset as we insert items
-                offset = 0
-                for idx in target_indices:
-                    adjusted_idx = idx + offset
-                    handles.insert(adjusted_idx + 1, plt.Line2D([], [], color='none'))  # Empty handle
-                    labels.insert(adjusted_idx + 1, '')  # Empty label
-                    offset += 1  # Increment offset for next insertion
-                # handles.insert(len(labels), plt.Line2D([], [], color='none'))  # Empty handle
-                # labels.insert(len(labels), '')  # Empty label
-
-                reordered_handles, reordered_labels = handles, labels
-                # reordered_handles, reordered_labels = reorder_legend_items(handles, labels, ncols=ncols)
+                reordered_handles, reordered_labels, ncols = format_legend_items(handles, labels, DATASET, PLOT_PCA)
                 fig2.legend(
                     reordered_handles, 
                     reordered_labels, 
@@ -643,7 +766,7 @@ if __name__ == '__main__':
                     borderaxespad=0,  # Remove padding between legend and axes
                     handletextpad=0.5,  # Reduce space between handle and text
                 )
-                plt.savefig(f'{save_name}_{x_label.lower().replace(" ","_")}_legend.pdf', dpi=200, bbox_inches='tight', 
+                plt.savefig(f'{save_name}{plot_name_suffix}_{x_label.lower().replace(" ","_")}_legend.pdf', dpi=200, bbox_inches='tight', 
                             pad_inches=0  # Remove padding around the figure
                            )
 

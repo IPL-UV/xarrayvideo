@@ -44,7 +44,7 @@ import numpy as np
 import datetime
 from tqdm import tqdm
 import pytortilla
-import tacoreader
+import tacoreader.v1 as tacoreader
 import json
 from xarrayvideo import to_netcdf, plot_image, xarray2video, video2xarray
 import tacotoolbox
@@ -411,7 +411,7 @@ def generate_id_to_split_map(output_path_subsets):
 
 def to_tortilla(input_path, output_path, id_to_split_map):
     """Creates tortilla files for each processed video cube, including data split information."""
-    files = list(input_path.iterdir())  # These are directories named with cube_id
+    files = [f for f in input_path.iterdir() if f.is_dir()]  # Only cube directories
     output_path.mkdir(parents=True, exist_ok=True)
 
     for f_dir_path in tqdm(files, desc="Cooking tortillas"):
@@ -448,7 +448,7 @@ def to_tortilla(input_path, output_path, id_to_split_map):
         except Exception as e:
             print(f'Error processing {cube_id} for tortilla creation: {e}')
 
-def to_taco(input_path, output_path):
+def to_taco(input_path, output_path, xarray_path=None):
     tortillas = list(input_path.iterdir())  # These are .tortilla files
 
     SAMPLE_CONTAINER = []
@@ -460,8 +460,20 @@ def to_taco(input_path, output_path):
         # Load the tortilla file
         tortilla_obj = tacoreader.load(tortilla.as_posix())
         
-        # Load the NetCDF minicube from the tortilla
+        # Load the NetCDF minicube from the tortilla (contains time coordinates)
         minicube = xr.open_dataset(BytesIO(tortilla_obj.read(3)), engine="h5netcdf")
+
+        # Read crs_wkt / transform_gdal from the original xarray .nc if available,
+        # since the video conversion does not copy these attrs into x.nc
+        crs_wkt = minicube.attrs.get('crs_wkt')
+        transform_gdal = minicube.attrs.get('transform_gdal')
+        if (crs_wkt is None or transform_gdal is None) and xarray_path is not None:
+            orig_nc = Path(xarray_path) / f'{tortilla.stem}.nc'
+            if orig_nc.exists():
+                import h5py
+                with h5py.File(orig_nc) as _f:
+                    crs_wkt = _f.attrs.get('crs_wkt')
+                    transform_gdal = list(_f.attrs.get('transform_gdal', []))
 
         # Define the sample metadata
         samples = pytortilla.datamodel.Sample(
@@ -469,8 +481,8 @@ def to_taco(input_path, output_path):
             file_format="TORTILLA",
             path=tortilla,
             stac_data={
-                "crs": minicube.attrs['crs_wkt'],
-                "geotransform": minicube.attrs['transform_gdal'],
+                "crs": crs_wkt,
+                "geotransform": transform_gdal,
                 "raster_shape": (minicube.sizes["y"], minicube.sizes["x"]),
                 "time_start": datetime.datetime.fromtimestamp(minicube.time.min().item() / 1e9),
                 "time_end": datetime.datetime.fromtimestamp(minicube.time.max().item() / 1e9),
@@ -498,63 +510,60 @@ def to_taco(input_path, output_path):
 
 if __name__ == '__main__':
     # Set the paths: inputs
-    datasets_path= Path("/scratch/users/databases/")
+    datasets_path= Path("/data/databases/")
     planet_root = datasets_path / 'dynamicearthnet'
     input_path_subsets = datasets_path / 'dynamicearthnet' / 'dynnet_training_splits'
     label_dirs = [planet_root / "dynamicearthnet_test_labels", planet_root / "labels" / "labels"]
 
-    # Outputs
     output_path_xarray = datasets_path / 'dynamicearthnet-video-final' / 'dynamicearthnet-xarray'
-    output_path_video = datasets_path / 'dynamicearthnet-video-final' / 'dynamicearthnet-video-60psnr'
-    output_path_tortilla = datasets_path / 'dynamicearthnet-video-final' / 'dynamicearthnet-tortilla'
-    output_path_taco = datasets_path / 'dynamicearthnet-video-final' / 'DynamicEarthNet-video.taco'
-    images_output_path= Path('./dynamicearthnet_images-60psnr')
-    
-    # Set the video parameters
-    lossy_params = [
-                     {'c:v': 'libx265',
-                      'preset': 'medium',
-                      'crf': 51,
-                      'x265-params': 'qpmin=0:qpmax=0.01',
-                      'tune': 'psnr',
-                     },
-                     {'c:v': 'libx265',
-                      'preset': 'medium',
-                      'crf': 7,
-                      'tune': 'psnr',
-                     }
-                    ][1] #Choose the params
+    output_path_final = datasets_path / 'dynamicearthnet-video-final'
+
+    # Versions to process: each entry is (name_suffix, lossy_ffmpeg_params)
+    versions = [
+        ('53psnr', {'c:v': 'libx265', 'preset': 'medium', 'crf': 51,
+                    'x265-params': 'qpmin=0:qpmax=0.01', 'tune': 'psnr'}),
+        ('60psnr', {'c:v': 'libx265', 'preset': 'medium', 'crf': 7,
+                    'tune': 'psnr'}),
+    ]
     lossless_params= { 'c:v':'ffv1' }
-    conversion_rules= {
-        'bands': (['R', 'G', 'B', 'NIR'], ('time', 'y', 'x'), 0, lossy_params, 12),
-        'labels': ('labels', ('time_month', 'y', 'x'), 0, lossless_params, 8),
-        }
     skip_existing= True
-    
+
     # Transform the original dataset (after downloading and unzipping) to xarray
     if False:
         output_path_xarray.mkdir(parents=True, exist_ok=True)
         to_xarray(planet_root, output_path_xarray, label_dirs, skip_existing=skip_existing)
         generate_id_files(input_path_subsets, output_path_xarray)
-    
-    # Transform the xarray dataset to xarrayvideo
-    if False:
-        output_path_video.mkdir(parents=True, exist_ok=True)
-        to_video(output_path_xarray, output_path_video, images_output_path, conversion_rules,
-                 skip_existing=skip_existing)
-        generate_id_files(input_path_subsets, output_path_video)
-        
-    # Save each cube in a tortilla
-    if False:
-        output_path_tortilla.mkdir(parents=True, exist_ok=True)
-        id_to_split_map = generate_id_to_split_map(output_path_video)
-        to_tortilla(output_path_video, output_path_tortilla, id_to_split_map)
-    
-    # Save all tortillas in a taco
-    if True:
-        output_path_taco.parent.mkdir(parents=True, exist_ok=True)
-        if output_path_taco.exists():
-            raise FileExistsError(f'{output_path_taco} already exists')
-        if output_path_taco.is_dir():
-            raise FileExistsError(f'{output_path_taco} is already a directory')
-        to_taco(output_path_tortilla, output_path_taco)
+
+    for version, lossy_params in versions:
+        print(f'\nProcessing version: {version}')
+
+        output_path_video    = datasets_path / f'dynamicearthnet-video-{version}'
+        output_path_tortilla = output_path_final / f'dynamicearthnet-tortilla-{version}'
+        output_path_taco     = output_path_final / f'DynamicEarthNet-video-{version}.taco'
+        images_output_path   = Path(f'./dynamicearthnet_images-{version}')
+
+        conversion_rules = {
+            'bands':  (['R', 'G', 'B', 'NIR'], ('time', 'y', 'x'),       0, lossy_params,    12),
+            'labels': ('labels',                ('time_month', 'y', 'x'), 0, lossless_params,  8),
+        }
+
+        # Transform the xarray dataset to xarrayvideo
+        if False:
+            output_path_video.mkdir(parents=True, exist_ok=True)
+            to_video(output_path_xarray, output_path_video, images_output_path, conversion_rules,
+                     skip_existing=skip_existing)
+            generate_id_files(input_path_subsets, output_path_video)
+
+        # Save each cube in a tortilla
+        if True:
+            output_path_tortilla.mkdir(parents=True, exist_ok=True)
+            id_to_split_map = generate_id_to_split_map(output_path_video)
+            to_tortilla(output_path_video, output_path_tortilla, id_to_split_map)
+
+        # Save all tortillas in a taco
+        if True:
+            output_path_taco.parent.mkdir(parents=True, exist_ok=True)
+            if output_path_taco.exists():
+                print(f'Warning: {output_path_taco} already exists, skipping taco creation.')
+            else:
+                to_taco(output_path_tortilla, output_path_taco, xarray_path=output_path_xarray)

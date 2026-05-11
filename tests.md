@@ -507,3 +507,5 @@ wind_u: 9500.56Mb -> ['83.75', '106.09', '124.92', '137.57', '72.48']Mb (5.52% o
  - SNR_sat 42.8042 (input saturated)
  - PSNR_sat 58.7520 (input saturated)
  - Exp. SA 0.0122 (input saturated)
+
+ #source /opt/ohpc/pub/miniforge3/bin/activate clima_emu
