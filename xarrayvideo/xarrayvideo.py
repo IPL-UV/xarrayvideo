@@ -13,6 +13,12 @@ from .utils import (safe_eval, to_netcdf, normalize, denormalize,
                     detect_planar, detect_rgb, reorder_coords_axis,
                     np2str, str2np, DRWrapper, reorder_coords, is_float, SEED)
 from .ffmpeg_wrappers import _ffmpeg_read, _ffmpeg_write
+from .external_video_wrappers import (
+    _external_video_read,
+    _external_video_write,
+    get_external_video_extension,
+    is_external_video_codec,
+)
 from .plot import plot_pair
 from .metrics import SA, SNR, SSIM
 
@@ -21,16 +27,26 @@ logger = logging.getLogger(__name__)
 
 #Globals
 #Codecs currently supported
-VIDEO_CODECS= ['libx264', 'libx265', 'vp9', 'ffv1', 'hevc_nvenc'] #ffmpeg
+VIDEO_CODECS= ['libx264', 'libx265', 'vp9', 'ffv1', 'hevc_nvenc', 'vvenc', 'uavs3e', 'vtm'] #video
 IMAGE_CODECS= ['JP2OpenJPEG'] #gdal
-EXTENSIONS= ['.mkv', '.jp2']
+VIDEO_EXTENSIONS = {
+    'libx264': '.mkv',
+    'libx265': '.mkv',
+    'vp9': '.mkv',
+    'ffv1': '.mkv',
+    'hevc_nvenc': '.mkv',
+    'vvenc': '.266',
+    'uavs3e': '.avs3',
+    'vtm': '.vvc',
+}
+EXTENSIONS= sorted(set(VIDEO_EXTENSIONS.values()) | {'.jp2'})
 TRUTHY= (1, '1', 'true', True, 'True', 'YES', 'yes', 'TRUE')
 METRICS_MAX_N= 1e8 #Use sampling for metric computation if N_elements is above this number
 
 def get_file_fmt(params):
     'Infer optimal file extension from codec name'
     if 'c:v' in params.keys() and params['c:v'] in VIDEO_CODECS:
-        return '.mkv'
+        return VIDEO_EXTENSIONS[params['c:v']]
     elif 'codec' in params.keys() and params['codec'] in IMAGE_CODECS:
         return '.jp2'
     # elif params['codec'] == 'jpegxl':
@@ -54,6 +70,8 @@ def get_compression(params):
                'lossless=1' in str(params['x265-params']) else 'lossy'
     elif 'c:v' in params.keys() and params['c:v'] in ['vp9']:
         return 'lossless' if is_video_lossless(params) else 'lossy'
+    elif 'c:v' in params.keys() and params['c:v'] in ['vvenc', 'uavs3e', 'vtm']:
+        return 'lossy'
     elif 'c:v' in params.keys() and params['c:v'] in ['ffv1']:
         return 'lossless'
     elif 'codec' in params.keys() and params['codec'] in ['JP2OpenJPEG']:
@@ -90,6 +108,20 @@ def get_pix_fmt(params, channels, bits):
             req_pix_fmt+= f'{bits}{endianness}'
         else:
             raise AssertionError(f'For {params["c:v"]=}, {bits=} not supported')
+    elif params['c:v'] in ['vvenc', 'uavs3e', 'vtm']:
+        input_pix_fmt= 'gbrp'
+        req_pix_fmt= 'yuv420p'
+
+        if bits == 8:
+            pass
+        elif bits in [10, 12, 16] and params['c:v'] == 'vtm':
+            input_pix_fmt+= f'{bits}{endianness}'
+            req_pix_fmt+= f'{bits}{endianness}'
+        elif bits == 10:
+            input_pix_fmt+= f'{bits}{endianness}'
+            req_pix_fmt+= f'{bits}{endianness}'
+        else:
+            raise AssertionError(f'For {params["c:v"]=}, {bits=} not supported')
     elif params['c:v'] in ['ffv1']: #Lossless
         #For ffv1: many options supported
         req_pix_fmt= {1:'gray', 3:'bgr0', 4:'bgra'}[channels] #Video
@@ -118,6 +150,34 @@ def get_param(possibly_list, position):
             return possibly_list[-1]
     else:
         return possibly_list
+
+
+def _get_output_array_id(array_id):
+    array_id_str = str(array_id)
+    if '/' in array_id_str or '\\' in array_id_str:
+        return Path(array_id_str).name
+    return array_id_str
+
+
+def _video_write(video_path, array, x, y, output_params, planar_in=True,
+                 input_pix_fmt='gbrp', loglevel='quiet', metadata=None):
+    codec_name = output_params['c:v']
+    if is_external_video_codec(codec_name):
+        return _external_video_write(
+            str(video_path), array, x, y, output_params, planar_in=planar_in,
+            input_pix_fmt=input_pix_fmt, loglevel=loglevel, metadata=metadata,
+        )
+    return _ffmpeg_write(
+        str(video_path), array, x, y, output_params, planar_in=planar_in,
+        loglevel=loglevel, metadata=metadata, input_pix_fmt=input_pix_fmt,
+    )
+
+
+def _video_read(video_path, loglevel='quiet'):
+    codec_name = video_path.suffix
+    if codec_name in {'.266', '.avs3', '.vvc'}:
+        return _external_video_read(str(video_path), loglevel=loglevel)
+    return _ffmpeg_read(video_path, loglevel=loglevel)
         
 #Forward function
 def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_data_in_stats=False,
@@ -181,9 +241,6 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
             else:
                 raise AssertionError(f'{len(coord_names)=} not in [3,4]')
                 
-            #Save a copy for comparison if doing compute_stats
-            if compute_stats: array_orig= array.copy()
-            
             #If all_zeros_is_nan, then mark timeteps with all_zeros as nan
             if all_zeros_is_nan and is_float(array):
                 array[~np.any(array, axis=(1,2,3))]= np.nan
@@ -196,6 +253,11 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                 elif nan_fill == 'min': array[array_nans]= np.nanmin(array)
                 elif nan_fill == 'max': array[array_nans]= np.nanmax(array)
                 else: raise AssertionError(f'{nan_fill=}?')
+
+            # Keep a reference to the pre-encoding data for metrics without
+            # eagerly cloning the full cube. Later transforms rebind `array`
+            # to new arrays, so `array_orig` remains the original tensor.
+            if compute_stats: array_orig= array
                             
             #Check if we are encoding a video or an image sequence
             is_sequence= is_image_sequence(params)
@@ -291,14 +353,15 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
 
             #Pathing
             output_path= Path(output_path)
-            (output_path / array_id).mkdir(exist_ok=True, parents=True)
+            output_array_id = _get_output_array_id(array_id)
+            (output_path / output_array_id).mkdir(exist_ok=True, parents=True)
             results[name]= {}
             if is_sequence:
-                metadata_path= output_path / array_id / f'{name}.json'
-                results[name]['path']= [output_path / array_id / ('%s_{id}%s'%(name, fmt))]
+                metadata_path= output_path / output_array_id / f'{name}.json'
+                results[name]['path']= [output_path / output_array_id / ('%s_{id}%s'%(name, fmt))]
             else:
                 comp_names= [f'{name}_{i+1:03d}' for i in range(video_files)]
-                results[name]['path']= [output_path / array_id / f'{cn}{fmt}' for cn in comp_names]
+                results[name]['path']= [output_path / output_array_id / f'{cn}{fmt}' for cn in comp_names]
             
             #Start timer
             t0= time.time()  
@@ -315,7 +378,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                     array_in= reorder_coords_axis(array_in, list('rgb'), list(ordering), axis=-1)
                     metadata['ORDER']= i+1
                     #if verbose: print(f'{output_path_video} -> {array_in.mean()}, {array_in.max()}')
-                    _ffmpeg_write(str(output_path_video), array_in, x_len, y_len, final_params, 
+                    _video_write(output_path_video, array_in, x_len, y_len, final_params,
                         planar_in=planar_in, loglevel=loglevel, metadata=metadata, input_pix_fmt=input_pix_fmt)
             else:
                 codec= final_params['codec']
@@ -337,7 +400,11 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
             if compute_stats:                
                 #Size and time
                 array_size= array_orig.size * array_orig.itemsize / 2**20 #In Mb (use array_orig dtype)
-                video_sizes= [v.stat().st_size / 2**20 for v in (output_path / array_id).glob(f'{name}_*')]
+                if is_sequence:
+                    image_paths = sorted(results[name]['path'][0].parent.glob(results[name]['path'][0].name.format(id='*')))
+                    video_sizes = [image_path.stat().st_size / 2**20 for image_path in image_paths]
+                else:
+                    video_sizes= [v.stat().st_size / 2**20 for v in results[name]['path']]
                 video_size= sum(video_sizes)
                 percentage= (video_size / array_size)*100
                 bpppb= video_size * 2**20 * 8 / array_orig.size #bits per pixel per band (=bps)
@@ -355,7 +422,7 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                 if is_sequence:
                     array_comp= _gdal_read(str(results[name]['path'][0]), metadata_path, loglevel=loglevel)[0]
                 else:
-                    array_comp_list= [_ffmpeg_read(v)[0] for v in results[name]['path']]
+                    array_comp_list= [_video_read(v, loglevel=loglevel)[0] for v in results[name]['path']]
                     array_comp_list= [reorder_coords_axis(a, list(ordering), list('rgb'), axis=-1) 
                                       for a in array_comp_list]
                     array_comp= np.concatenate(array_comp_list, axis=-1)
@@ -398,25 +465,31 @@ def xarray2video(x, array_id, conversion_rules, compute_stats=False, include_dat
                         from torchmetrics.functional.regression import mean_squared_error as ptMSE
                         import torch
                         
-                        #Everything to torch: torchmetrics is expecting (batch, channel, x, y). 
-                        #We will use t for the batch. E.g.: txyc -> tcxy
-                        comp= torch.from_numpy(np.swapaxes(array_comp.astype(np.float32), 1, -1))
-                        orig= torch.from_numpy(np.swapaxes(array_orig_sat.astype(np.float32), 1, -1))
-                        
-                        #We get rid of any timesteps that have any nans either in orig or comp
-                        valid_idx = (torch.isnan(comp) | torch.isnan(orig)).sum(axis=(1,2,3)) == 0
-                        comp= comp[valid_idx]
-                        orig= orig[valid_idx]
-                        
-                        #Sample some data?
-                        if comp.numel() > METRICS_MAX_N:
-                            sample_fraction= METRICS_MAX_N / comp.numel()
+                        # Torchmetrics expects (batch, channel, x, y). Sample on
+                        # the numpy arrays before float32 conversion to avoid
+                        # allocating full-cube float copies for very large inputs.
+                        comp_np= array_comp
+                        orig_np= array_orig_sat
+
+                        valid_idx = ~(
+                            np.isnan(comp_np).any(axis=(1,2,3)) |
+                            np.isnan(orig_np).any(axis=(1,2,3))
+                        )
+                        comp_np= comp_np[valid_idx]
+                        orig_np= orig_np[valid_idx]
+
+                        if comp_np.size > METRICS_MAX_N:
+                            sample_fraction= METRICS_MAX_N / comp_np.size
                             logger.info(f'Using only {sample_fraction*100:.2f}% of data for metrics computation. Adjust this by modifying global variable METRICS_MAX_N={METRICS_MAX_N}')
-                            torch.manual_seed(SEED)
-                            ts= comp.shape[0]
-                            idx= [torch.randperm(ts)[:int(ts*sample_fraction)]]
-                            comp= comp[idx]
-                            orig= orig[idx]
+                            rng = np.random.default_rng(SEED)
+                            ts= comp_np.shape[0]
+                            sample_count = max(1, int(ts*sample_fraction))
+                            idx= np.sort(rng.choice(ts, size=sample_count, replace=False))
+                            comp_np= comp_np[idx]
+                            orig_np= orig_np[idx]
+
+                        comp= torch.from_numpy(np.moveaxis(comp_np.astype(np.float32), -1, 1))
+                        orig= torch.from_numpy(np.moveaxis(orig_np.astype(np.float32), -1, 1))
                         
                         ssim_val= ptSSIM(comp, orig).numpy().item()
                         psnr_data_range = metrics_value_range[1] - metrics_value_range[0] if type(metrics_value_range) is tuple else None
@@ -480,15 +553,16 @@ def video2xarray(input_path, array_id, exceptions='raise'):
     #Load xarray
     x= xr.open_dataset(path / array_id / 'x.nc')
     
-    #Check if it is a sequence of images or a video
+    video_suffixes = set(VIDEO_EXTENSIONS.values())
+    video_files = sorted([p for p in (path / array_id).iterdir() if p.suffix in video_suffixes])
     meta_files= list((path / array_id).glob('*.json'))
-    is_sequence= len(meta_files)
+    is_sequence= not video_files
     
     #Read videos / image sequences along with their metadata
     arrays, metas= defaultdict(list), defaultdict(list)
     if not is_sequence:
-        for video_path in (path / array_id).glob(f'*.mkv'):
-            array, meta_info= _ffmpeg_read(video_path)
+        for video_path in video_files:
+            array, meta_info= _video_read(video_path)
             array= reorder_coords_axis(array, list(meta_info['CHANNEL_ORDER']), list('rgb'), axis=-1)
             bands_key = '_'.join(map(str, safe_eval(meta_info['BANDS']))) #E.g.: B01_B02_B03
             arrays[bands_key].append(array)

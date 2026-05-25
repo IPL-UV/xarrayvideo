@@ -22,6 +22,11 @@ tests.md
 /testing/
 synthetic_missing_results_0.8.csv
 synthetic_missing_results.csv
+*.out
+*.err
+/output/
+/cubos_julio/
+/overnight_logs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
