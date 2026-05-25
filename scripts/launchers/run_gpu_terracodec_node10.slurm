@@ -60,7 +60,7 @@ fi
 
 if [[ -z "$CUSTOM_INPUT_PATH" ]]; then
     echo "CUSTOM_INPUT_PATH is not set and no local custom pickle was found." >&2
-    echo "Pass it with: sbatch --export=ALL,CUSTOM_INPUT_PATH=/path/to/custom_cube[,CUSTOM_INPUT_FORMAT=netcdf|zarr|pickle] run_gpu_terracodec_node10.slurm" >&2
+    echo "Pass it with: sbatch --export=ALL,CUSTOM_INPUT_PATH=/path/to/custom_cube[,CUSTOM_INPUT_FORMAT=netcdf|zarr|pickle] scripts/launchers/run_gpu_terracodec_node10.slurm" >&2
     exit 1
 fi
 

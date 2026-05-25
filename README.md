@@ -189,12 +189,13 @@ python scripts/run_tests.py --dataset era5 --rules_name img --plot_samples
 
 Cluster launchers wrapping `scripts/run_tests.py`:
 
-- `run_cpu_xv_codec_smoke.sh`: minimal external-codec smoke test.
-- `run_cpu_xv_codec_calibration.sh`: calibration run for the new codec ladders.
-- `run_cpu_xv_custom_codecs.sh`: custom-dataset codec benchmark.
-- `run_cpu_xv_deepextremes_codecs.sh`: DeepExtremeCubes codec benchmark.
-- `run_cpu_xv_dynamicearthnet_codecs.sh`: DynamicEarthNet codec benchmark.
-- `run_cpu_xv_era5_codecs.sh`: ERA5 codec benchmark.
+- `scripts/launchers/run_cpu_xv_codec_smoke.sh`: minimal external-codec smoke test.
+- `scripts/launchers/run_cpu_xv_codec_calibration.sh`: calibration run for the new codec ladders.
+- `scripts/launchers/run_cpu_xv_custom_codecs.sh`: custom-dataset codec benchmark.
+- `scripts/launchers/run_cpu_xv_deepextremes_codecs.sh`: DeepExtremeCubes codec benchmark.
+- `scripts/launchers/run_cpu_xv_dynamicearthnet_codecs.sh`: DynamicEarthNet codec benchmark.
+- `scripts/launchers/run_cpu_xv_era5_codecs.sh`: ERA5 codec benchmark.
+- `scripts/launchers/run_cpu_build_vvc_avs3.sh`: cluster launcher for building the external codec toolchain.
 
 Outputs:
 
@@ -217,7 +218,7 @@ The repository now includes dedicated scripts used for the direct TerraCodec com
 - `scripts/run_terracodec_tests.py`: benchmark one cube and emit the same MultiIndex pickle layout used by `scripts/run_tests.py`.
 - `scripts/run_terracodec_suite.py`: launch the repo's benchmark subset repeatedly across multiple cubes.
 - `scripts/check_terracodec_scaling.py`: confirm reflectance scaling before running TerraCodec on public Sentinel-2 cubes.
-- `run_gpu_terracodec_node10.slurm` and `run_gpu_terracodec_suite_node10.slurm`: GPU launchers used for those comparisons.
+- `scripts/launchers/run_gpu_terracodec_node10.slurm` and `scripts/launchers/run_gpu_terracodec_suite_node10.slurm`: GPU launchers used for those comparisons.
 - `scripts/run_xarrayvideo_single_cube.py`: classical codec baseline on the same cube slices used for TerraCodec.
 
 These scripts are intentionally separate from the default ffmpeg-centric workflow because TerraCodec has different environment, hardware, and model assumptions.
@@ -252,6 +253,7 @@ Codec setup and probing:
 - `scripts/install_vvc_avs3_codecs.sh`: build external codec toolchains.
 - `scripts/activate_codec_tools.sh`: add codec binaries to `PATH`.
 - `scripts/find_encoders.sh`: inspect ffmpeg encoder and pixel-format support.
+- `scripts/launchers/`: cluster and batch launchers kept out of the repo root.
 
 TerraCodec utilities:
 
