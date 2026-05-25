@@ -3,10 +3,15 @@
 CODEC_ROOT="${1:-$HOME/codec_toolchains}"
 codec_dirs=(
   "$CODEC_ROOT/vvenc/bin/release-static"
+  "$CODEC_ROOT/vvenc/build/bin/release-static"
+  "$CODEC_ROOT/vvenc/build/bin"
   "$CODEC_ROOT/vvdec/bin/release-static"
+  "$CODEC_ROOT/vvdec/build/bin/release-static"
+  "$CODEC_ROOT/vvdec/build/bin"
   "$CODEC_ROOT/uavs3e/build"
   "$CODEC_ROOT/uavs3d/build"
   "$CODEC_ROOT/VVCSoftware_VTM/bin"
+  "$CODEC_ROOT/VVCSoftware_VTM/build/bin"
 )
 
 missing_dirs=()

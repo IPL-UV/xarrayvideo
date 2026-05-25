@@ -5,8 +5,8 @@ Measures peak RSS memory for different cube sizes by running each case in
 an isolated subprocess, to avoid Python's memory caching polluting results.
 
 Usage:
-    python scripts/measure_ram.py
-    python scripts/measure_ram.py --single <case_index>  # used internally
+    python scripts/legacy/measure_ram.py
+    python scripts/legacy/measure_ram.py --single <case_index>  # used internally
 """
 
 import sys, os, gc, time, tempfile, json, subprocess, shutil, argparse
@@ -16,7 +16,7 @@ import xarray as xr
 import psutil
 
 # Add repo root to path
-repo_root = Path(__file__).resolve().parent.parent
+repo_root = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(repo_root))
 
 

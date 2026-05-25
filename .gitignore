@@ -27,6 +27,10 @@ synthetic_missing_results.csv
 /output/
 /cubos_julio/
 /overnight_logs/
+/psnr.txt
+/tests.md
+/scripts/max_vals_out.txt
+/scripts/stats.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

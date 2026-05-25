@@ -126,6 +126,8 @@ echo "[setup] Build root: $ROOT_DIR"
 echo "[setup] Build jobs: $JOBS"
 echo "[setup] CMake generator: $GENERATOR"
 
+CODECS_TO_BUILD="${CODECS_TO_BUILD:-vvenc,vvdec,uavs3e,uavs3d}"
+
 build_repo() {
     local repo_url="$1"
     local repo_dir="$2"
@@ -165,22 +167,48 @@ patch_uavs3e() {
   fi
 }
 
-# Already built and working; keep these disabled unless you intentionally want to rebuild them.
-# build_repo https://github.com/fraunhoferhhi/vvenc vvenc -DCMAKE_BUILD_TYPE=Release
-# build_repo https://github.com/fraunhoferhhi/vvdec vvdec -DCMAKE_BUILD_TYPE=Release
-# build_repo https://github.com/uavs3/uavs3e uavs3e -DCMAKE_BUILD_TYPE=Release -DCOMPILE_10BIT=1
-# build_repo https://github.com/uavs3/uavs3d uavs3d -DCMAKE_BUILD_TYPE=Release -DCOMPILE_10BIT=1
-build_repo https://vcgit.hhi.fraunhofer.de/jvet/VVCSoftware_VTM.git VVCSoftware_VTM -DCMAKE_BUILD_TYPE=Release
+IFS=',' read -r -a codec_targets <<< "$CODECS_TO_BUILD"
+
+for codec_target in "${codec_targets[@]}"; do
+  case "$codec_target" in
+    vvenc)
+      build_repo https://github.com/fraunhoferhhi/vvenc vvenc -DCMAKE_BUILD_TYPE=Release
+      ;;
+    vvdec)
+      build_repo https://github.com/fraunhoferhhi/vvdec vvdec -DCMAKE_BUILD_TYPE=Release
+      ;;
+    uavs3e)
+      build_repo https://github.com/uavs3/uavs3e uavs3e -DCMAKE_BUILD_TYPE=Release -DCOMPILE_10BIT=1
+      ;;
+    uavs3d)
+      build_repo https://github.com/uavs3/uavs3d uavs3d -DCMAKE_BUILD_TYPE=Release -DCOMPILE_10BIT=1
+      ;;
+    vtm)
+      build_repo https://vcgit.hhi.fraunhofer.de/jvet/VVCSoftware_VTM.git VVCSoftware_VTM -DCMAKE_BUILD_TYPE=Release
+      ;;
+    '')
+      ;;
+    *)
+      echo "Unknown codec target '$codec_target'. Supported values: vvenc,vvdec,uavs3e,uavs3d,vtm" >&2
+      exit 1
+      ;;
+  esac
+done
 
 cat <<EOF
 Build complete.
 Add these directories to PATH before running benchmarks:
-  $ROOT_DIR/vvenc/build
-  $ROOT_DIR/vvdec/build
+  $ROOT_DIR/vvenc/bin/release-static
+  $ROOT_DIR/vvdec/bin/release-static
   $ROOT_DIR/uavs3e/build
   $ROOT_DIR/uavs3d/build
-  $ROOT_DIR/VVCSoftware_VTM/build
+  $ROOT_DIR/VVCSoftware_VTM/bin
 
 If you run this script manually on the cluster, prefer:
   bash scripts/install_vvc_avs3_codecs.sh
+
+Optional targets:
+  CODECS_TO_BUILD=vvenc,vvdec,uavs3e,uavs3d bash scripts/install_vvc_avs3_codecs.sh
+  CODECS_TO_BUILD=vvenc,uavs3e bash scripts/install_vvc_avs3_codecs.sh
+  CODECS_TO_BUILD=vtm bash scripts/install_vvc_avs3_codecs.sh
 EOF
